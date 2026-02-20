@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FutureSight — Product Lead Dashboard</title>
+<!-- No external Google scripts needed — auth uses plain OAuth 2.0 PKCE redirect + fetch() -->
+<style>
+:root {
+  --bg:#0f1117; --surface:#1a1d27; --surface2:#22263a; --border:#2d3148;
+  --text:#e8eaf0; --muted:#7b8099; --accent:#6366f1;
+  --flowar:#3b82f6; --homeservices:#22c55e; --legal:#a855f7;
+  --dental:#f97316; --voice:#14b8a6; --general:#64748b;
+  --critical:#ef4444; --high:#f97316; --medium:#eab308; --low:#6b7280;
+  --now:#ef4444; --soon:#f59e0b; --later:#3b82f6;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+
+/* ── SETUP BANNER ── */
+.setup-banner{background:linear-gradient(135deg,#1e1b4b,#312e81);border-bottom:1px solid #4338ca;padding:14px 32px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.setup-banner.hidden{display:none}
+.setup-banner p{font-size:13px;color:#c7d2fe;line-height:1.5}
+.setup-banner p strong{color:#fff}
+.setup-banner p code{background:rgba(255,255,255,.1);border-radius:4px;padding:1px 6px;font-size:12px;font-family:monospace}
+.setup-steps{display:flex;gap:8px;align-items:center;flex-shrink:0;flex-wrap:wrap}
+.connect-btn{background:#6366f1;border:none;border-radius:7px;padding:8px 18px;color:#fff;font-size:13px;font-weight:600;cursor:pointer;transition:background .15s}
+.connect-btn:hover{background:#4f46e5}
+.connect-btn:disabled{opacity:.5;cursor:not-allowed}
+
+/* ── HEADER ── */
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 32px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;gap:12px;flex-wrap:wrap}
+.header-left{display:flex;align-items:center;gap:16px}
+.logo{font-size:20px;font-weight:700;color:#fff;letter-spacing:-.5px}
+.logo span{color:var(--accent)}
+.header-sub{color:var(--muted);font-size:12px}
+.header-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.date-badge{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 12px;font-size:12px;color:var(--muted)}
+
+/* sync UI */
+.sync-area{display:flex;align-items:center;gap:8px}
+.sync-btn{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 12px;color:var(--text);font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .15s}
+.sync-btn:hover{border-color:var(--accent);color:var(--accent)}
+.sync-btn:disabled{opacity:.5;cursor:not-allowed}
+.sync-btn .spin{display:inline-block;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.sync-time{font-size:11px;color:var(--muted);white-space:nowrap}
+.sync-dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:2px}
+.sync-dot.ok{background:#22c55e}
+.sync-dot.warn{background:#f59e0b}
+.sync-dot.off{background:#475569}
+.signout-btn{background:transparent;border:1px solid var(--border);border-radius:6px;padding:4px 10px;color:var(--muted);font-size:11px;cursor:pointer;transition:all .15s}
+.signout-btn:hover{border-color:#ef4444;color:#ef4444}
+.user-chip{display:flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:3px 10px 3px 4px}
+.user-chip img{width:22px;height:22px;border-radius:50%}
+.user-chip span{font-size:11px;color:var(--muted);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── STATS BAR ── */
+.stats-bar{display:flex;gap:12px;padding:20px 32px;overflow-x:auto;flex-wrap:wrap}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 20px;min-width:140px;flex:1}
+.stat-card .label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.stat-card .value{font-size:26px;font-weight:700;color:#fff}
+.stat-card .sub{color:var(--muted);font-size:11px;margin-top:2px}
+.stat-card.critical .value{color:var(--critical)}
+.stat-card.now .value{color:var(--now)}
+.stat-card.venture{border-left:3px solid}
+.stat-card.venture.flowar{border-left-color:var(--flowar)}
+.stat-card.venture.homeservices{border-left-color:var(--homeservices)}
+.stat-card.venture.legal{border-left-color:var(--legal)}
+.stat-card.venture.dental{border-left-color:var(--dental)}
+.stat-card.venture.voice{border-left-color:var(--voice)}
+.stat-card.venture.general{border-left-color:var(--general)}
+
+/* ── CONTROLS ── */
+.controls{padding:0 32px 16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.search-wrap{position:relative;flex:1;min-width:200px}
+.search-wrap input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 12px 8px 34px;color:var(--text);font-size:13px;outline:none;transition:border-color .2s}
+.search-wrap input:focus{border-color:var(--accent)}
+.search-wrap svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted)}
+.filter-btn{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:6px 12px;color:var(--muted);cursor:pointer;font-size:12px;transition:all .15s;white-space:nowrap}
+.filter-btn:hover{border-color:var(--accent);color:var(--text)}
+.filter-btn.active{border-color:var(--accent);background:rgba(99,102,241,.15);color:var(--text)}
+.filter-btn.v-flowar.active{border-color:var(--flowar);background:rgba(59,130,246,.12)}
+.filter-btn.v-homeservices.active{border-color:var(--homeservices);background:rgba(34,197,94,.12)}
+.filter-btn.v-legal.active{border-color:var(--legal);background:rgba(168,85,247,.12)}
+.filter-btn.v-dental.active{border-color:var(--dental);background:rgba(249,115,22,.12)}
+.filter-btn.v-voice.active{border-color:var(--voice);background:rgba(20,184,166,.12)}
+.filter-btn.v-general.active{border-color:var(--general);background:rgba(100,116,139,.12)}
+.divider{width:1px;background:var(--border);height:30px}
+select{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:12px;cursor:pointer;outline:none}
+select:focus{border-color:var(--accent)}
+.view-toggle{display:flex;gap:2px;background:var(--surface2);border-radius:6px;padding:2px;border:1px solid var(--border)}
+.view-btn{background:transparent;border:none;border-radius:4px;padding:5px 10px;color:var(--muted);cursor:pointer;font-size:12px;transition:all .15s}
+.view-btn.active{background:var(--surface);color:var(--text)}
+.completed-toggle{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer;user-select:none}
+.completed-toggle input{accent-color:var(--accent);width:14px;height:14px;cursor:pointer}
+
+/* ── RESULTS BAR ── */
+.results-bar{padding:0 32px 10px;color:var(--muted);font-size:12px;display:flex;align-items:center;gap:16px}
+.results-bar strong{color:var(--text)}
+
+/* ── TABLE ── */
+.table-wrap{padding:0 32px 40px;overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+thead tr{border-bottom:2px solid var(--border)}
+th{text-align:left;padding:10px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);cursor:pointer;user-select:none;white-space:nowrap}
+th:hover{color:var(--text)}
+th.sorted .sort-arrow{color:var(--accent)}
+tbody tr{border-bottom:1px solid var(--border);transition:background .1s}
+tbody tr:hover{background:rgba(255,255,255,.03)}
+tbody tr.completed-row{opacity:.4}
+tbody tr.completed-row .task-name{text-decoration:line-through;color:var(--muted)}
+td{padding:10px 12px;vertical-align:top}
+
+/* complete checkbox */
+.check-col{width:28px}
+.task-check{width:15px;height:15px;accent-color:var(--accent);cursor:pointer;margin-top:2px}
+.task-check:disabled{opacity:.4;cursor:default}
+
+/* badges */
+.vbadge{display:inline-block;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600;white-space:nowrap;border:1px solid;text-transform:uppercase;letter-spacing:.3px}
+.vbadge.flowar{color:var(--flowar);border-color:var(--flowar);background:rgba(59,130,246,.1)}
+.vbadge.homeservices{color:var(--homeservices);border-color:var(--homeservices);background:rgba(34,197,94,.1)}
+.vbadge.legal{color:var(--legal);border-color:var(--legal);background:rgba(168,85,247,.1)}
+.vbadge.dental{color:var(--dental);border-color:var(--dental);background:rgba(249,115,22,.1)}
+.vbadge.voice{color:var(--voice);border-color:var(--voice);background:rgba(20,184,166,.1)}
+.vbadge.general{color:var(--general);border-color:var(--general);background:rgba(100,116,139,.1)}
+.pbadge{display:inline-block;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600;white-space:nowrap}
+.pbadge.Critical{background:rgba(239,68,68,.15);color:#fca5a5}
+.pbadge.High{background:rgba(249,115,22,.15);color:#fdba74}
+.pbadge.Medium{background:rgba(234,179,8,.15);color:#fde047}
+.pbadge.Low{background:rgba(107,114,128,.15);color:#9ca3af}
+.ubadge{display:inline-flex;align-items:center;gap:4px;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600;white-space:nowrap;width:fit-content}
+.ubadge::before{content:'';width:6px;height:6px;border-radius:50%;display:inline-block;flex-shrink:0}
+.ubadge.Now{background:rgba(239,68,68,.12);color:#fca5a5}.ubadge.Now::before{background:#ef4444}
+.ubadge.Soon{background:rgba(245,158,11,.12);color:#fcd34d}.ubadge.Soon::before{background:#f59e0b}
+.ubadge.Later{background:rgba(59,130,246,.12);color:#93c5fd}.ubadge.Later::before{background:#3b82f6}
+.sbadge{display:inline-block;border-radius:4px;padding:2px 8px;font-size:11px;white-space:nowrap}
+.sbadge.todo{background:rgba(71,85,105,.3);color:#94a3b8}
+.sbadge.inprog{background:rgba(99,102,241,.2);color:#a5b4fc}
+.sbadge.blocked{background:rgba(239,68,68,.15);color:#fca5a5}
+.sbadge.backlog{background:rgba(55,65,81,.4);color:#6b7280}
+.sbadge.done{background:rgba(34,197,94,.15);color:#86efac}
+.cbadge{display:inline-block;border-radius:4px;padding:2px 7px;font-size:10px;background:var(--surface2);color:var(--muted);border:1px solid var(--border);white-space:nowrap}
+.google-tag{font-size:10px;background:rgba(66,133,244,.15);color:#93c5fd;border:1px solid rgba(66,133,244,.3);border-radius:3px;padding:1px 5px;margin-left:5px;vertical-align:middle}
+.new-tag{font-size:10px;background:rgba(99,102,241,.2);color:#a5b4fc;border-radius:3px;padding:1px 5px;margin-left:5px;vertical-align:middle}
+
+/* effort */
+.effort-wrap{display:flex;align-items:center;gap:6px}
+.effort-pips{display:flex;gap:3px;align-items:center}
+.pip{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.effort-num{font-size:11px;font-weight:700;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px}
+
+.task-name{font-weight:500;color:var(--text);margin-bottom:3px}
+.task-desc{color:var(--muted);font-size:12px;line-height:1.4;max-width:360px}
+
+/* ── KANBAN ── */
+.kanban-wrap{padding:0 32px 40px;display:none}
+.kanban-wrap.active{display:flex;gap:16px;align-items:flex-start;overflow-x:auto}
+.kanban-col{background:var(--surface);border:1px solid var(--border);border-radius:10px;min-width:290px;flex:1}
+.kanban-col-header{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.col-title{font-weight:600;font-size:13px}
+.col-count{background:var(--surface2);border-radius:4px;padding:2px 8px;font-size:11px;color:var(--muted)}
+.col-now .col-title{color:#fca5a5}
+.col-soon .col-title{color:#fcd34d}
+.col-later .col-title{color:#93c5fd}
+.kanban-cards{padding:10px;display:flex;flex-direction:column;gap:8px}
+.kanban-card{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;border-left:3px solid;transition:box-shadow .15s}
+.kanban-card:hover{box-shadow:0 2px 12px rgba(0,0,0,.3)}
+.kanban-card.flowar{border-left-color:var(--flowar)}.kanban-card.homeservices{border-left-color:var(--homeservices)}
+.kanban-card.legal{border-left-color:var(--legal)}.kanban-card.dental{border-left-color:var(--dental)}
+.kanban-card.voice{border-left-color:var(--voice)}.kanban-card.general{border-left-color:var(--general)}
+.kanban-card.completed-card{opacity:.4}
+.kanban-card.completed-card .kc-name{text-decoration:line-through}
+.kc-top{display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap}
+.kc-name{font-weight:500;font-size:13px;color:var(--text);margin-bottom:4px;line-height:1.3}
+.kc-desc{font-size:11px;color:var(--muted);line-height:1.4}
+.kc-bottom{display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap}
+
+/* ── EMPTY ── */
+.empty{text-align:center;padding:60px 20px;color:var(--muted)}
+.empty h3{color:var(--text);margin-bottom:6px}
+
+/* ── LEGEND ── */
+.legend{padding:0 32px 16px;display:flex;gap:24px;flex-wrap:wrap}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
+.legend-dot{width:10px;height:10px;border-radius:50%}
+
+.hidden{display:none!important}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+@media(max-width:768px){
+  .header,.stats-bar,.controls,.table-wrap,.kanban-wrap,.legend,.results-bar{padding-left:16px;padding-right:16px}
+  .stats-bar{flex-direction:column}
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════ SETUP BANNER ════════════════════════════ -->
+<div class="setup-banner hidden" id="setupBanner">
+  <p>
+    <strong>🔗 Connect Google Tasks for live sync.</strong>
+    Open this file, find <code>YOUR_GOOGLE_CLIENT_ID</code> and replace it with your OAuth Client ID.
+    Then click Connect — one-time login, auto-syncs every time you open the page.
+    <a href="#" onclick="showSetupHelp()" style="color:#a5b4fc;margin-left:8px;font-size:12px">Setup guide ↗</a>
+  </p>
+  <div class="setup-steps">
+    <button class="connect-btn hidden" id="connectBtn" onclick="handleAuthClick()">🔗 Connect Google</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ HEADER ══════════════════════════════════ -->
+<header class="header">
+  <div class="header-left">
+    <div class="logo">Future<span>Sight</span></div>
+    <div class="header-sub">Product Lead · Venture Dashboard</div>
+  </div>
+  <div class="header-right">
+    <div class="sync-area" id="syncArea">
+      <span class="sync-dot off" id="syncDot"></span>
+      <span class="sync-time" id="syncTime">Offline mode</span>
+      <button class="sync-btn" id="syncBtn" onclick="syncWithGoogle()" disabled title="Connect Google Tasks to sync">
+        <span id="syncIcon">⟳</span> Sync
+      </button>
+    </div>
+    <div id="authArea"></div>
+    <div class="date-badge" id="currentDate"></div>
+  </div>
+</header>
+
+<!-- ═══════════════════════════ STATS ════════════════════════════════════ -->
+<div class="stats-bar" id="statsBar"></div>
+
+<!-- ── LEGEND ── -->
+<div class="legend">
+  <span style="font-size:11px;color:var(--muted);font-weight:600;margin-right:4px">VENTURES:</span>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--flowar)"></div>FlowAR</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--homeservices)"></div>HomeServices</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--legal)"></div>Legal Agent</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--dental)"></div>Sona / Dental</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--voice)"></div>Voice Platform</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--general)"></div>General</div>
+  <div class="legend-item" style="margin-left:8px"><span class="new-tag">NEW</span> = Suggested task</div>
+  <div class="legend-item"><span class="google-tag">G</span> = From Google Tasks</div>
+</div>
+
+<!-- ── CONTROLS ── -->
+<div class="controls">
+  <div class="search-wrap">
+    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+    <input id="searchInput" type="text" placeholder="Search tasks…" oninput="applyFilters()" />
+  </div>
+  <div class="divider"></div>
+  <div class="filter-group" id="ventureFilters" style="display:flex;gap:6px;flex-wrap:wrap">
+    <button class="filter-btn active" data-group="venture" data-val="all" onclick="toggleFilter(this)">All Ventures</button>
+    <button class="filter-btn v-flowar"       data-group="venture" data-val="flowar"       onclick="toggleFilter(this)">💰 FlowAR</button>
+    <button class="filter-btn v-homeservices" data-group="venture" data-val="homeservices" onclick="toggleFilter(this)">🏠 HomeServices</button>
+    <button class="filter-btn v-legal"        data-group="venture" data-val="legal"        onclick="toggleFilter(this)">⚖️ Legal Agent</button>
+    <button class="filter-btn v-dental"       data-group="venture" data-val="dental"       onclick="toggleFilter(this)">🦷 Sona/Dental</button>
+    <button class="filter-btn v-voice"        data-group="venture" data-val="voice"        onclick="toggleFilter(this)">🎙 Voice Platform</button>
+    <button class="filter-btn v-general"      data-group="venture" data-val="general"      onclick="toggleFilter(this)">⚙️ General</button>
+  </div>
+  <div class="divider"></div>
+  <select id="priorityFilter" onchange="applyFilters()">
+    <option value="all">All Priorities</option>
+    <option value="Critical">🔴 Critical</option>
+    <option value="High">🟠 High</option>
+    <option value="Medium">🟡 Medium</option>
+    <option value="Low">⚪ Low</option>
+  </select>
+  <select id="urgencyFilter" onchange="applyFilters()">
+    <option value="all">All Urgency</option>
+    <option value="Now">🔴 Now</option>
+    <option value="Soon">🟡 Soon</option>
+    <option value="Later">🔵 Later</option>
+  </select>
+  <select id="categoryFilter" onchange="applyFilters()">
+    <option value="all">All Categories</option>
+    <option value="Product">Product</option>
+    <option value="GTM/Sales">GTM / Sales</option>
+    <option value="Research">Research</option>
+    <option value="Operations">Operations</option>
+    <option value="Engineering">Engineering</option>
+    <option value="Strategy">Strategy</option>
+  </select>
+  <select id="statusFilter" onchange="applyFilters()">
+    <option value="all">All Statuses</option>
+    <option value="To Do">To Do</option>
+    <option value="In Progress">In Progress</option>
+    <option value="Blocked">Blocked</option>
+    <option value="Backlog">Backlog</option>
+    <option value="Completed">✅ Completed</option>
+  </select>
+  <div class="divider"></div>
+  <label class="completed-toggle">
+    <input type="checkbox" id="showCompleted" onchange="applyFilters()" /> Show completed
+  </label>
+  <div class="view-toggle">
+    <button class="view-btn active" id="tableViewBtn" onclick="setView('table')">☰ Table</button>
+    <button class="view-btn"        id="kanbanViewBtn" onclick="setView('kanban')">▦ Board</button>
+  </div>
+</div>
+
+<div class="results-bar">
+  <span><strong id="resultCount">0</strong> tasks</span>
+  <span id="criticalCount" style="color:var(--critical)"></span>
+</div>
+
+<!-- ── TABLE ── -->
+<div class="table-wrap" id="tableView">
+  <table>
+    <thead>
+      <tr>
+        <th class="check-col"></th>
+        <th onclick="sortBy('venture')">Venture <span class="sort-arrow">↕</span></th>
+        <th onclick="sortBy('name')">Task <span class="sort-arrow">↕</span></th>
+        <th onclick="sortBy('category')">Category <span class="sort-arrow">↕</span></th>
+        <th onclick="sortBy('priority')">Priority <span class="sort-arrow">↕</span></th>
+        <th onclick="sortBy('urgency')">Urgency <span class="sort-arrow">↕</span></th>
+        <th onclick="sortBy('effort')">Effort <span class="sort-arrow">↕</span></th>
+        <th onclick="sortBy('status')">Status <span class="sort-arrow">↕</span></th>
+      </tr>
+    </thead>
+    <tbody id="tableBody"></tbody>
+  </table>
+  <div class="empty hidden" id="emptyState">
+    <svg width="40" height="40" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="color:var(--border)"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+    <h3>No tasks match your filters</h3>
+    <p>Try adjusting the filters above</p>
+  </div>
+</div>
+
+<!-- ── KANBAN ── -->
+<div class="kanban-wrap" id="kanbanView">
+  <div class="kanban-col col-now">
+    <div class="kanban-col-header"><span class="col-title">🔴 Now — This Week</span><span class="col-count" id="nowCount">0</span></div>
+    <div class="kanban-cards" id="nowCards"></div>
+  </div>
+  <div class="kanban-col col-soon">
+    <div class="kanban-col-header"><span class="col-title">🟡 Soon — This Month</span><span class="col-count" id="soonCount">0</span></div>
+    <div class="kanban-cards" id="soonCards"></div>
+  </div>
+  <div class="kanban-col col-later">
+    <div class="kanban-col-header"><span class="col-title">🔵 Later — Next Quarter</span><span class="col-count" id="laterCount">0</span></div>
+    <div class="kanban-cards" id="laterCards"></div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// ⚙️  CONFIG — paste your Google OAuth Client ID below
+//     Steps:  1. console.cloud.google.com  → New Project
+//             2. APIs & Services → Enable "Tasks API"
+//             3. Credentials → Create OAuth 2.0 Client ID
+//                Type: Web application
+//                Authorized JS Origins: add your hosting URL
+//                  (e.g. https://your-app.vercel.app  OR  http://localhost)
+//             4. Copy the Client ID and paste it below
+// ═══════════════════════════════════════════════════════════════════
+const CONFIG = {
+  clientId: '371728085947-24bpmu41akpf73pqtc4pp3jtg12gsjps.apps.googleusercontent.com',
+
+  // Map your Google Tasks list names → venture keys in this dashboard
+  listMap: {
+    'AR Collection Agent':      'flowar',
+    'Voice Agent':              'voice',
+    'My Tasks':                 'general',
+    'Home Services':            'homeservices',
+    'Legal Receptionist Agent': 'legal',
+    'Dental Project':           'dental',
+  },
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// TASK TEMPLATES  (local metadata: priority / urgency / effort / desc)
+// These enrich tasks pulled from Google — matched by normalized title.
+// Tasks in Google Tasks that have no matching template are added with defaults.
+// ═══════════════════════════════════════════════════════════════════
+const taskTemplates = [
+  // ── FLOWAR ─────────────────────────────────────────────────────
+  {venture:'flowar',ventureLabel:'FlowAR',name:'Define pilot onboarding process',desc:'Document the end-to-end onboarding flow for AR pilots: data intake, account setup, first call review, escalation handoff.',category:'Operations',priority:'High',urgency:'Now',effort:2,isNew:false},
+  {venture:'flowar',ventureLabel:'FlowAR',name:'Complete Validation Memo',desc:'Synthesize Silvio, Cary & WealthTech interviews into final validation memo. Critical before any pilot decisions.',category:'Strategy',priority:'Critical',urgency:'Now',effort:3,isNew:false},
+  {venture:'flowar',ventureLabel:'FlowAR',name:'Create Data Dump document',desc:'Design data submission "package" for pilots: aging report, invoices, payment history. Set ~20 accounts/pilot cap.',category:'Operations',priority:'Critical',urgency:'Now',effort:2,isNew:false},
+  {venture:'flowar',ventureLabel:'FlowAR',name:'Define pilot success metrics & KPIs',desc:'Set go/no-go criteria before pilots launch. E.g., 30%+ collections improvement, <20% monthly churn. Align with Nabil.',category:'Strategy',priority:'Critical',urgency:'Now',effort:2,isNew:true},
+  {venture:'flowar',ventureLabel:'FlowAR',name:'Consider callback flow design',desc:'Decide: AI pickup vs. routing to client for escalations. Define single callback number with internal routing logic.',category:'Product',priority:'High',urgency:'Now',effort:2,isNew:false},
+  {venture:'flowar',ventureLabel:'FlowAR',name:'Prototype Improvements',desc:'Add bad guys (risky customers) to the Report page. Bring flagged items to the top.',category:'Product',priority:'High',urgency:'Now',effort:2,isNew:false},
+  {venture:'flowar',ventureLabel:'FlowAR',name:'Add bad conversations with angry customers',desc:'Seed the prototype with angry customer call simulations to test escalation logic and AI guardrails.',category:'Product',priority:'High',urgency:'Now',effort:1,isNew:false},
+  {venture:'flowar',ventureLabel:'FlowAR',name:'Generate scripts with different scenarios to test the AI',desc:'Write diverse scenario scripts: partial payers, disputers, silent debtors, angry callers.',category:'Product',priority:'High',urgency:'Now',effort:2,isNew:false},
+  {venture:'flowar',ventureLabel:'FlowAR',name:'Synthesize interview insights (Nicolas & James)',desc:'Distill key findings into a product brief: pre-collection workflows, empathy-first for small accounts, email notification impact.',category:'Research',priority:'High',urgency:'Now',effort:2,isNew:true},
+  {venture:'flowar',ventureLabel:'FlowAR',name:'Reach out to 3–5 additional pilot prospects',desc:'Expand beyond current pipeline. Target CFOs and AR managers at mid-size B2B firms.',category:'GTM/Sales',priority:'High',urgency:'Now',effort:2,isNew:true},
+  {venture:'flowar',ventureLabel:'FlowAR',name:'Validate if competitors have Freemium and how they are',desc:'Research if competitors offer freemium and how they convert. Decide if FlowAR should mirror or differentiate.',category:'Research',priority:'High',urgency:'Soon',effort:2,isNew:false},
+  {venture:'flowar',ventureLabel:'FlowAR',name:'Define pricing model',desc:'Stress-test $500–3,000/month + $2–5K setup. Validate against interview data. Decide on freemium tier.',category:'Strategy',priority:'High',urgency:'Soon',effort:3,isNew:true},
+  {venture:'flowar',ventureLabel:'FlowAR',name:'Risk Feature',desc:'Research LexisNexis, Dun & Bradstreet, Euler Hermes (AR insurance). Define how risk scoring integrates.',category:'Research',priority:'High',urgency:'Soon',effort:3,isNew:false},
+  {venture:'flowar',ventureLabel:'FlowAR',name:'API Integrations',desc:'Evaluate Ampersand for integration layer. Map QuickBooks/Xero integration requirements.',category:'Engineering',priority:'Medium',urgency:'Soon',effort:2,isNew:false},
+  {venture:'flowar',ventureLabel:'FlowAR',name:'Partnerships',desc:'Explore accounting firm referral partnerships and QuickBooks Marketplace. Define commission structure.',category:'GTM/Sales',priority:'Medium',urgency:'Later',effort:3,isNew:false},
+  {venture:'flowar',ventureLabel:'FlowAR',name:'Invoice Confirmation Calls',desc:'Feature: AI calls to confirm service/product before invoice generation. Based on Nicolas interview insight.',category:'Product',priority:'Low',urgency:'Later',effort:1,isNew:false},
+  {venture:'flowar',ventureLabel:'FlowAR',name:'AP/Cahsflow features',desc:'Evaluate Plooto and Obol as potential integrations or competitive references for expanded product surface.',category:'Research',priority:'Low',urgency:'Later',effort:2,isNew:false},
+  {venture:'flowar',ventureLabel:'FlowAR',name:'Ideas',desc:'Future ideas: AI contract reader for negotiation, credit bureau integration, risk score from LinkedIn/Google.',category:'Research',priority:'Low',urgency:'Later',effort:1,isNew:false},
+
+  // ── HOMESERVICES ────────────────────────────────────────────────
+  {venture:'homeservices',ventureLabel:'HomeServices',name:'Send LOI to 6 hot prospects',desc:'Priority close action. Get signed letters of intent from the 6 warmest leads.',category:'GTM/Sales',priority:'Critical',urgency:'Now',effort:1,isNew:false},
+  {venture:'homeservices',ventureLabel:'HomeServices',name:'List Next Steps for both Michael and Sam',desc:'Roadmap/follow-up [S], pitch prep [M], onboarding process [S]. Run their website around features for insights.',category:'Strategy',priority:'Critical',urgency:'Now',effort:2,isNew:false},
+  {venture:'homeservices',ventureLabel:'HomeServices',name:'Check Development Budget / Roadmap for Pilots',desc:'Confirm engineering capacity and budget before committing to pilot timelines.',category:'Strategy',priority:'Critical',urgency:'Now',effort:1,isNew:false},
+  {venture:'homeservices',ventureLabel:'HomeServices',name:'Collect transcripts and analise the current calls',desc:'Process call export xlsx. Extract insights: objections, pain points, best segments.',category:'Research',priority:'High',urgency:'Now',effort:2,isNew:false},
+  {venture:'homeservices',ventureLabel:'HomeServices',name:'Fix contact data quality',desc:'Enrich/verify phone numbers. 48% access failures in last campaign were data quality. Use Hunter.io or Apollo.',category:'Operations',priority:'High',urgency:'Now',effort:2,isNew:true},
+  {venture:'homeservices',ventureLabel:'HomeServices',name:'Nurture the 144 soft deflections',desc:'Set up automated email + voicemail + SMS sequences for the 21% soft deflections. High recovery potential.',category:'GTM/Sales',priority:'High',urgency:'Now',effort:2,isNew:true},
+  {venture:'homeservices',ventureLabel:'HomeServices',name:'Quantifying current client results to pitch next ones',desc:'Extract and present ROI metrics from live clients to use in pitch for next cohort.',category:'GTM/Sales',priority:'High',urgency:'Now',effort:2,isNew:false},
+  {venture:'homeservices',ventureLabel:'HomeServices',name:'Generate scripts with different scenarios to test the AI',desc:'Write scenario scripts: new job calls, rebooking, after-hours urgent, gatekeeper situations.',category:'Product',priority:'High',urgency:'Now',effort:2,isNew:false},
+  {venture:'homeservices',ventureLabel:'HomeServices',name:'Prepare Demo materials',desc:'Build polished demo deck and live demo flow for solo owners.',category:'GTM/Sales',priority:'High',urgency:'Now',effort:2,isNew:false},
+  {venture:'homeservices',ventureLabel:'HomeServices',name:'Define pilot onboarding playbook',desc:'Document step-by-step: number forwarding setup, prompt config, first 48hr check-in, week 1 review.',category:'Operations',priority:'High',urgency:'Now',effort:2,isNew:true},
+  {venture:'homeservices',ventureLabel:'HomeServices',name:'Do some Cold Calls',desc:'Call solo/small owners directly outside business hours. "How would this help you and what\'s missing?"',category:'GTM/Sales',priority:'High',urgency:'Now',effort:3,isNew:false},
+  {venture:'homeservices',ventureLabel:'HomeServices',name:'Outreach strategy',desc:'Small owners → cold calls. Small companies → LinkedIn/email. Execute both channels this week.',category:'GTM/Sales',priority:'High',urgency:'Now',effort:3,isNew:false},
+  {venture:'homeservices',ventureLabel:'HomeServices',name:'Investigate Automatic Forwarding Back-end',desc:'Research/spec automatic call forwarding without manual customer setup steps.',category:'Engineering',priority:'High',urgency:'Soon',effort:3,isNew:false},
+  {venture:'homeservices',ventureLabel:'HomeServices',name:'Improve Website for Solo Owners',desc:'Rewrite homepage copy targeting solo owner pain points. Add case study.',category:'Product',priority:'Medium',urgency:'Soon',effort:3,isNew:false},
+  {venture:'homeservices',ventureLabel:'HomeServices',name:'Build matrix of competitors pricing',desc:'Map pricing for Avoca, Rosie, Phonely, Smith.ai. Identify positioning whitespace.',category:'Research',priority:'Medium',urgency:'Soon',effort:2,isNew:false},
+  {venture:'homeservices',ventureLabel:'HomeServices',name:'Scope Outbound as a feature',desc:'Design spec for AI-initiated outbound: follow-ups on abandoned quotes, review requests, rebooking.',category:'Product',priority:'Medium',urgency:'Soon',effort:2,isNew:false},
+  {venture:'homeservices',ventureLabel:'HomeServices',name:'Reach out to HomeServices Consultants / Gatekeepers',desc:'Engage industry consultants/coaches who advise home services SMBs. Potential referral channel.',category:'GTM/Sales',priority:'Medium',urgency:'Soon',effort:2,isNew:false},
+  {venture:'homeservices',ventureLabel:'HomeServices',name:'Run Ads on website',desc:'Test paid search/Facebook ads targeting home services business owners.',category:'GTM/Sales',priority:'Medium',urgency:'Soon',effort:3,isNew:false},
+  {venture:'homeservices',ventureLabel:'HomeServices',name:'Do Market Sizing',desc:'Calculate TAM/SAM/SOM for home services AI voice agents in North America.',category:'Research',priority:'Medium',urgency:'Soon',effort:3,isNew:false},
+  {venture:'homeservices',ventureLabel:'HomeServices',name:'Recreate Outreach spreadsheet for Michael',desc:'New outreach list from Facebook groups (ServiceTitan, etc.) targeting owner-operators.',category:'Operations',priority:'High',urgency:'Now',effort:1,isNew:false,defaultStatus:'Completed'},
+  {venture:'homeservices',ventureLabel:'HomeServices',name:'Go to Conferences',desc:'Identify and attend home services industry events. Build brand + direct relationships.',category:'GTM/Sales',priority:'Low',urgency:'Later',effort:2,isNew:false},
+
+  // ── LEGAL AGENT ─────────────────────────────────────────────────
+  {venture:'legal',ventureLabel:'Legal Agent',name:'Map what other things I need to do',desc:'Full audit of what still needs to happen in formation. Cross-check against execution plan.',category:'Strategy',priority:'Critical',urgency:'Now',effort:1,isNew:false},
+  {venture:'legal',ventureLabel:'Legal Agent',name:'Launch all 5 pilots in February 2026',desc:'Critical formation milestone. All 5 pilots (2 Design Partners + 3 Production) must go live this month.',category:'Operations',priority:'Critical',urgency:'Now',effort:3,isNew:true},
+  {venture:'legal',ventureLabel:'Legal Agent',name:'Hire Founding Engineer',desc:'Critical path item. Blocking custom system build and ElevenLabs migration. Accelerate screening.',category:'Operations',priority:'Critical',urgency:'Now',effort:5,isNew:true},
+  {venture:'legal',ventureLabel:'Legal Agent',name:'Set up Day 30/60/90 pilot KPI tracking',desc:'Build tracking for pilot milestones: call volume, hours enabled, consults booked. Must be live before Day 30.',category:'Operations',priority:'Critical',urgency:'Now',effort:3,isNew:true},
+  {venture:'legal',ventureLabel:'Legal Agent',name:'Build custom system (reduce ElevenLabs dependency)',desc:'Core engineering priority. Design Partners must migrate to custom system by March.',category:'Engineering',priority:'Critical',urgency:'Now',effort:8,isNew:true},
+  {venture:'legal',ventureLabel:'Legal Agent',name:'Investigate Pilot features',desc:'Document specific capabilities needed per pilot lawyer: intake, escalation, scheduling, outbound follow-up.',category:'Product',priority:'High',urgency:'Now',effort:2,isNew:false},
+  {venture:'legal',ventureLabel:'Legal Agent',name:'Update Roadmap (Pilot, MVP, MSP)',desc:'Revise roadmap to reflect formation sprint timelines. Align with Founding Engineer and Silvio.',category:'Strategy',priority:'High',urgency:'Now',effort:2,isNew:false},
+  {venture:'legal',ventureLabel:'Legal Agent',name:'Generate scripts with different scenarios to test the AI',desc:'Legal-specific scenarios: intake calls, urgent legal matters, after-hours emergencies, consult scheduling.',category:'Product',priority:'High',urgency:'Now',effort:2,isNew:false},
+  {venture:'legal',ventureLabel:'Legal Agent',name:'Create an audio demo call',desc:'Produce a polished demo recording of Ava handling a realistic intake call.',category:'GTM/Sales',priority:'High',urgency:'Soon',effort:2,isNew:false},
+  {venture:'legal',ventureLabel:'Legal Agent',name:'Initiate CTO search pipeline',desc:'Begin CTO recruitment (Q2 target). Define role spec, post on Toptal/Braintrust.',category:'Operations',priority:'High',urgency:'Soon',effort:3,isNew:true},
+  {venture:'legal',ventureLabel:'Legal Agent',name:'Migrate Design Partners off ElevenLabs',desc:'Target: April 2026. Coordinate with Founding Engineer. Zero service interruption.',category:'Engineering',priority:'High',urgency:'Soon',effort:5,isNew:true},
+  {venture:'legal',ventureLabel:'Legal Agent',name:'Initiate outbound for additional pilot prospects',desc:'Build pipeline beyond current 5 pilots for post-conversion phase.',category:'GTM/Sales',priority:'Medium',urgency:'Soon',effort:3,isNew:true},
+
+  // ── SONA / DENTAL ───────────────────────────────────────────────
+  {venture:'dental',ventureLabel:'Sona/Dental',name:'[TOP] Create LOI',desc:'Top priority for Dental. Get letters of intent from curated lead list (Texas practices on Open Dental/Dentrix).',category:'GTM/Sales',priority:'Critical',urgency:'Now',effort:2,isNew:false},
+  {venture:'dental',ventureLabel:'Sona/Dental',name:'Do some Cold Calls with Behrouz',desc:'Outreach to the curated 10-lead list. Use personalized script hooks tied to each practice\'s hiring signals.',category:'GTM/Sales',priority:'Critical',urgency:'Now',effort:2,isNew:false},
+  {venture:'dental',ventureLabel:'Sona/Dental',name:'Get access to Dentrix API',desc:'Submit developer access request. Review Dentrix API Agreement. Critical for integration roadmap.',category:'Engineering',priority:'High',urgency:'Now',effort:2,isNew:false},
+  {venture:'dental',ventureLabel:'Sona/Dental',name:'Analyze dental leads for outreach prioritization',desc:'Score the 10 leads by hiring signal strength, practice size, and software (Dentrix vs Open Dental).',category:'Research',priority:'High',urgency:'Now',effort:1,isNew:true},
+  {venture:'dental',ventureLabel:'Sona/Dental',name:'Generate scripts with different scenarios to test the AI',desc:'Dental-specific: new patient intake, appointment reminders, cancellations, insurance verification.',category:'Product',priority:'High',urgency:'Now',effort:2,isNew:false},
+  {venture:'dental',ventureLabel:'Sona/Dental',name:'Create a Scorecard comparing the 3 verticals',desc:'Side-by-side: Home Services, Legal, and Dental on market size, urgency, willingness to pay, competitive density.',category:'Strategy',priority:'High',urgency:'Now',effort:3,isNew:false},
+  {venture:'dental',ventureLabel:'Sona/Dental',name:'Create Roadmap',desc:'Build Dental-specific roadmap: intake, screening, appointment callback. Align with Voice Platform primitives.',category:'Strategy',priority:'High',urgency:'Soon',effort:3,isNew:false},
+  {venture:'dental',ventureLabel:'Sona/Dental',name:'Create an audio demo call',desc:'Polished Dental voice agent demo tailored to dental front-desk: booking, intake, reminders.',category:'GTM/Sales',priority:'High',urgency:'Soon',effort:2,isNew:false},
+  {venture:'dental',ventureLabel:'Sona/Dental',name:'Create Voice technical features',desc:'Architecture: Intake → Screening → Appointment Callback. Map to Dentrix/Open Dental data models.',category:'Engineering',priority:'High',urgency:'Soon',effort:5,isNew:false},
+  {venture:'dental',ventureLabel:'Sona/Dental',name:'Define dental JTBD & value prop vs. Home Services',desc:'Why dental is distinct: patient sensitivity, HIPAA, scheduling complexity, front desk fatigue.',category:'Research',priority:'Medium',urgency:'Soon',effort:2,isNew:true},
+
+  // ── VOICE PLATFORM ──────────────────────────────────────────────
+  {venture:'voice',ventureLabel:'Voice Platform',name:'Create MVP Roadmap',desc:'Define shared platform MVP: what primitives are v1, what\'s vertical-specific. Timeline to first cross-venture reuse.',category:'Strategy',priority:'Critical',urgency:'Now',effort:3,isNew:false},
+  {venture:'voice',ventureLabel:'Voice Platform',name:'Define modular primitives',desc:'Map reusable components across Legal, Dental, HomeServices: intake, routing, escalation, summary generation.',category:'Strategy',priority:'High',urgency:'Now',effort:3,isNew:true},
+  {venture:'voice',ventureLabel:'Voice Platform',name:'Get access for APIs:',desc:'Apply for API access: Henry Schein One (dental), Nextech (USA), Zenoti (wellness/medspa).',category:'Engineering',priority:'High',urgency:'Now',effort:2,isNew:false},
+  {venture:'voice',ventureLabel:'Voice Platform',name:'Generate scripts with different scenarios to test the AI',desc:'Cross-vertical test suite validating platform-level behavior: latency, fallback handling, handoff quality.',category:'Product',priority:'High',urgency:'Now',effort:2,isNew:false},
+  {venture:'voice',ventureLabel:'Voice Platform',name:'Test SMS and Create form',desc:'Test SMS follow-up after voice calls. Build form submission as alternate intake channel.',category:'Product',priority:'Medium',urgency:'Soon',effort:2,isNew:false},
+  {venture:'voice',ventureLabel:'Voice Platform',name:'Train model:',desc:'Fine-tune the voice model: avoid repetition, support multimodal inputs. Use userinterviews.com/ai-training.',category:'Engineering',priority:'High',urgency:'Soon',effort:5,isNew:false},
+  {venture:'voice',ventureLabel:'Voice Platform',name:'Create shared component library & reuse strategy',desc:'Reusable prompt templates, escalation logic, integration connectors cloneable across verticals.',category:'Engineering',priority:'Medium',urgency:'Soon',effort:5,isNew:true},
+  {venture:'voice',ventureLabel:'Voice Platform',name:'Document platform architecture for cross-venture use',desc:'Architecture doc for future EIRs and engineers to understand and extend the platform.',category:'Strategy',priority:'Medium',urgency:'Soon',effort:3,isNew:true,defaultStatus:'Completed'},
+
+  // ── GENERAL ─────────────────────────────────────────────────────
+  {venture:'general',ventureLabel:'General',name:'[TOP] Attach Slack links',desc:'Link Slack threads to task system: Sean situation, Voice Agent backlog, AR PRD, Reply.io performance, outreach analysis.',category:'Operations',priority:'Critical',urgency:'Now',effort:1,isNew:false},
+  {venture:'general',ventureLabel:'General',name:'Alan Meeting',desc:'Prepare agenda: Sean situation feedback, voice agent backlog, Reply.io campaign, partnership with Erika & Mark.',category:'Operations',priority:'Medium',urgency:'Now',effort:1,isNew:false},
+  {venture:'general',ventureLabel:'General',name:'Setup weekly cross-venture status cadence',desc:'Weekly ritual: one-pager per venture with top 3 wins, blockers, and next week priorities.',category:'Operations',priority:'High',urgency:'Now',effort:1,isNew:true},
+  {venture:'general',ventureLabel:'General',name:'[All] Setup Website and run Ads to take them to a Form',desc:'Build lead capture system: landing pages per vertical → ScoreApp quiz → segmentation → nurture.',category:'GTM/Sales',priority:'High',urgency:'Soon',effort:5,isNew:false},
+  {venture:'general',ventureLabel:'General',name:'EIR Pipeline review & coaching sessions',desc:'Review EIR Pipeline xlsx. Bi-weekly coaching on hypothesis-driven thinking and GTM rigor.',category:'Operations',priority:'Medium',urgency:'Soon',effort:2,isNew:true},
+  {venture:'general',ventureLabel:'General',name:'Research on Claude:',desc:'Evaluate Cowork, Claude Code, Aura.build, Impeccable.style for team productivity. Brief team on adoption.',category:'Research',priority:'Medium',urgency:'Soon',effort:1,isNew:false},
+  {venture:'general',ventureLabel:'General',name:'Write content as if Apple',desc:'Brand content guidelines and sample copy for venture landing pages using Apple\'s clarity-first style.',category:'GTM/Sales',priority:'Medium',urgency:'Later',effort:2,isNew:false},
+  {venture:'general',ventureLabel:'General',name:'UI/UX with AI',desc:'Evaluate Aura.build, Impeccable.style, shadcn/ui, Untitled UI for building quality interfaces faster.',category:'Research',priority:'Low',urgency:'Later',effort:2,isNew:false},
+];
+
+// ═══════════════════════════════════════════════════════════════════
+// AUTH — OAuth 2.0 implicit flow (no client_secret, no server)
+// ═══════════════════════════════════════════════════════════════════
+const SCOPES    = 'https://www.googleapis.com/auth/tasks';
+const TOKEN_KEY = 'fs_gtoken';
+const TOKEN_EXP = 'fs_gtoken_exp';
+let isAuthenticated = false;
+
+function redirectUri() {
+  return window.location.origin + window.location.pathname.replace(/\/+$/, '');
+}
+
+function handleAuthClick() {
+  const params = new URLSearchParams({
+    client_id:     CONFIG.clientId,
+    redirect_uri:  redirectUri(),
+    response_type: 'token',
+    scope:         SCOPES,
+    prompt:        'consent',
+  });
+  window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params;
+}
+
+function checkImplicitCallback() {
+  // Token arrives in URL hash: #access_token=...&expires_in=3600&...
+  const hash = window.location.hash.substring(1);
+  if (!hash) return false;
+  const params    = new URLSearchParams(hash);
+  const token     = params.get('access_token');
+  const expiresIn = params.get('expires_in');
+  const error     = params.get('error');
+  window.history.replaceState({}, '', window.location.pathname); // clean URL
+  if (error) { alert('Google auth error: ' + error); return false; }
+  if (!token) return false;
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(TOKEN_EXP, (Date.now() + parseInt(expiresIn || '3600') * 1000).toString());
+  return true;
+}
+
+function getValidToken() {
+  const exp   = parseInt(localStorage.getItem(TOKEN_EXP) || '0');
+  const token = localStorage.getItem(TOKEN_KEY);
+  return (token && Date.now() < exp - 60000) ? token : null;
+}
+
+function handleSignOut() {
+  const t = localStorage.getItem(TOKEN_KEY);
+  if (t) fetch('https://oauth2.googleapis.com/revoke?token=' + t, { method: 'POST' }).catch(() => {});
+  [TOKEN_KEY, TOKEN_EXP].forEach(k => localStorage.removeItem(k));
+  isAuthenticated = false;
+  setSyncStatus('off', 'Disconnected');
+  renderAuthArea(false);
+  document.getElementById('setupBanner').classList.remove('hidden');
+  document.getElementById('connectBtn').classList.remove('hidden');
+  buildDashboard([]);
+}
+
+function onAuthenticated() {
+  isAuthenticated = true;
+  document.getElementById('setupBanner').classList.add('hidden');
+  renderAuthArea(true);
+  document.getElementById('syncBtn').disabled = false;
+}
+
+function renderAuthArea(signedIn) {
+  document.getElementById('authArea').innerHTML = signedIn
+    ? `<button class="signout-btn" onclick="handleSignOut()">Disconnect</button>`
+    : `<button class="connect-btn" onclick="handleAuthClick()">🔗 Connect Google Tasks</button>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// GOOGLE TASKS SYNC — pure fetch(), no GAPI library required
+// ═══════════════════════════════════════════════════════════════════
+let googleTaskMap = {};
+
+async function syncWithGoogle() {
+  const token = await getValidToken();
+  if (!token) {
+    isAuthenticated = false;
+    renderAuthArea(false);
+    document.getElementById('setupBanner').classList.remove('hidden');
+    document.getElementById('connectBtn').classList.remove('hidden');
+    buildDashboard([]);
+    return;
+  }
+  setSyncStatus('syncing', 'Syncing…');
+  document.getElementById('syncIcon').classList.add('spin');
+  document.getElementById('syncBtn').disabled = true;
+  const headers = { Authorization: 'Bearer ' + token };
+  try {
+    googleTaskMap = {};
+    const listsRes  = await fetch('https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=20', { headers });
+    if (listsRes.status === 401) throw Object.assign(new Error('Unauthorized'), { status: 401 });
+    const listsData = await listsRes.json();
+    for (const list of (listsData.items || [])) {
+      const venture = CONFIG.listMap[list.title];
+      if (!venture) continue;
+      const tasksRes  = await fetch(
+        `https://tasks.googleapis.com/tasks/v1/lists/${encodeURIComponent(list.id)}/tasks?showCompleted=true&showHidden=true&maxResults=100`,
+        { headers }
+      );
+      const tasksData = await tasksRes.json();
+      for (const item of (tasksData.items || [])) {
+        const key = normalizeTitle(item.title);
+        googleTaskMap[key] = { id: item.id, listId: list.id, listTitle: list.title, title: item.title, venture, status: item.status };
+      }
+    }
+    setSyncStatus('ok', 'Synced ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+  } catch (e) {
+    console.error('Sync error', e);
+    if (e.status === 401) {
+      [TOKEN_KEY, TOKEN_EXP].forEach(k => localStorage.removeItem(k));
+      isAuthenticated = false;
+      renderAuthArea(false);
+      document.getElementById('setupBanner').classList.remove('hidden');
+    } else {
+      setSyncStatus('warn', 'Sync failed');
+    }
+  }
+  document.getElementById('syncIcon').classList.remove('spin');
+  document.getElementById('syncBtn').disabled = false;
+  buildDashboard(Object.values(googleTaskMap));
+}
+
+function normalizeTitle(t) {
+  return (t || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+}
+
+async function toggleTaskComplete(taskKey, currentStatus) {
+  const token = await getValidToken();
+  if (!token) return;
+  const gTask = googleTaskMap[taskKey];
+  if (!gTask) return;
+  const newStatus = currentStatus === 'Completed' ? 'needsAction' : 'completed';
+  try {
+    await fetch(
+      `https://tasks.googleapis.com/tasks/v1/lists/${encodeURIComponent(gTask.listId)}/tasks/${encodeURIComponent(gTask.id)}`,
+      {
+        method: 'PATCH',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      }
+    );
+    gTask.status = newStatus;
+    buildDashboard(Object.values(googleTaskMap));
+  } catch (e) {
+    console.error('Patch error', e);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DATA MERGE  — templates + Google Tasks status
+// ═══════════════════════════════════════════════════════════════════
+let tasks = [];
+
+function buildDashboard(googleItems) {
+  const merged = [];
+  const usedKeys = new Set();
+
+  // 1. Start from templates — overlay Google status
+  for (const t of taskTemplates) {
+    const key = normalizeTitle(t.name);
+    const g = googleTaskMap[key];
+    const defaultStatus = t.defaultStatus || 'To Do';
+    const status = g
+      ? (g.status === 'completed' ? 'Completed' : defaultStatus)
+      : defaultStatus;
+    merged.push({
+      ...t,
+      status,
+      googleKey: key,
+      fromGoogle: !!g,
+    });
+    usedKeys.add(key);
+  }
+
+  // 2. Add Google Tasks tasks not in templates (new tasks added directly in Google)
+  for (const g of googleItems) {
+    const key = normalizeTitle(g.title);
+    if (usedKeys.has(key)) continue;
+    merged.push({
+      venture: g.venture,
+      ventureLabel: Object.entries(CONFIG.listMap).find(([,v])=>v===g.venture)?.[0] || g.venture,
+      name: g.title,
+      desc: 'Added directly in Google Tasks.',
+      category: 'Operations',
+      priority: 'Medium',
+      urgency: 'Soon',
+      effort: 2,
+      isNew: false,
+      status: g.status === 'completed' ? 'Completed' : 'To Do',
+      googleKey: key,
+      fromGoogle: true,
+    });
+  }
+
+  tasks = merged;
+  buildStats();
+  applyFilters();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DASHBOARD STATE
+// ═══════════════════════════════════════════════════════════════════
+let activeVenture = 'all', sortCol = 'priority', sortDir = 1;
+const priorityOrder = { Critical:0, High:1, Medium:2, Low:3 };
+const urgencyOrder  = { Now:0, Soon:1, Later:2 };
+const statusOrder   = { 'To Do':0, 'In Progress':1, 'Blocked':2, 'Backlog':3, 'Completed':4 };
+
+function setSyncStatus(state, msg) {
+  const dot = document.getElementById('syncDot');
+  dot.className = 'sync-dot ' + (state === 'ok' ? 'ok' : state === 'syncing' ? 'warn' : state === 'warn' ? 'warn' : 'off');
+  document.getElementById('syncTime').textContent = msg;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// STATS
+// ═══════════════════════════════════════════════════════════════════
+function buildStats() {
+  const active = tasks.filter(t => t.status !== 'Completed');
+  const critical = active.filter(t => t.priority === 'Critical').length;
+  const nowCount = active.filter(t => t.urgency === 'Now').length;
+  const ventures = [
+    {key:'flowar',label:'💰 FlowAR',stage:'Post-Validation → Pilots',cls:'flowar'},
+    {key:'homeservices',label:'🏠 HomeServices',stage:'Validation → Pilots',cls:'homeservices'},
+    {key:'legal',label:'⚖️ Legal Agent',stage:'Formation Sprint',cls:'legal'},
+    {key:'dental',label:'🦷 Sona/Dental',stage:'Early Validation',cls:'dental'},
+    {key:'voice',label:'🎙 Voice Platform',stage:'MVP Definition',cls:'voice'},
+  ];
+  document.getElementById('statsBar').innerHTML = `
+    <div class="stat-card critical"><div class="label">Critical Tasks</div><div class="value">${critical}</div><div class="sub">Needs immediate attention</div></div>
+    <div class="stat-card now"><div class="label">Do This Week</div><div class="value">${nowCount}</div><div class="sub">Urgency: Now</div></div>
+    <div class="stat-card"><div class="label">Total Tasks</div><div class="value">${active.length}</div><div class="sub">Across all ventures</div></div>
+    ${ventures.map(v=>{
+      const vt = tasks.filter(t=>t.venture===v.key&&t.status!=='Completed');
+      const vc = vt.filter(t=>t.priority==='Critical').length;
+      return `<div class="stat-card venture ${v.cls}"><div class="label">${v.label}</div><div class="value">${vt.length}</div><div class="sub">${vc>0?`🔴 ${vc} critical · `:''}${v.stage}</div></div>`;
+    }).join('')}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FILTERS + SORT
+// ═══════════════════════════════════════════════════════════════════
+function toggleFilter(btn) {
+  if (btn.dataset.group === 'venture') {
+    document.querySelectorAll('[data-group="venture"]').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    activeVenture = btn.dataset.val;
+  }
+  applyFilters();
+}
+
+function applyFilters() {
+  const search      = document.getElementById('searchInput').value.toLowerCase();
+  const priority    = document.getElementById('priorityFilter').value;
+  const urgency     = document.getElementById('urgencyFilter').value;
+  const category    = document.getElementById('categoryFilter').value;
+  const status      = document.getElementById('statusFilter').value;
+  const showDone    = document.getElementById('showCompleted').checked;
+
+  let filtered = tasks.filter(t => {
+    if (t.status === 'Completed' && !showDone && status !== 'Completed') return false;
+    if (activeVenture !== 'all' && t.venture !== activeVenture) return false;
+    if (priority !== 'all' && t.priority !== priority) return false;
+    if (urgency  !== 'all' && t.urgency  !== urgency)  return false;
+    if (category !== 'all' && t.category !== category) return false;
+    if (status   !== 'all' && t.status   !== status)   return false;
+    if (search) {
+      const hay = `${t.name} ${t.desc} ${t.ventureLabel} ${t.category}`.toLowerCase();
+      if (!hay.includes(search)) return false;
+    }
+    return true;
+  });
+
+  filtered.sort((a, b) => {
+    let va, vb;
+    if      (sortCol==='priority') { va=priorityOrder[a.priority]; vb=priorityOrder[b.priority]; }
+    else if (sortCol==='urgency')  { va=urgencyOrder[a.urgency];   vb=urgencyOrder[b.urgency]; }
+    else if (sortCol==='status')   { va=statusOrder[a.status];     vb=statusOrder[b.status]; }
+    else if (sortCol==='effort')   { va=a.effort; vb=b.effort; }
+    else { va=(a[sortCol]||'').toLowerCase(); vb=(b[sortCol]||'').toLowerCase(); }
+    if (va<vb) return -1*sortDir;
+    if (va>vb) return  1*sortDir;
+    return priorityOrder[a.priority]-priorityOrder[b.priority];
+  });
+
+  renderTable(filtered);
+  renderKanban(filtered);
+  const crit = filtered.filter(t=>t.priority==='Critical'&&t.status!=='Completed').length;
+  const done = filtered.filter(t=>t.status==='Completed').length;
+  document.getElementById('resultCount').textContent = filtered.length - done;
+  document.getElementById('criticalCount').textContent =
+    (crit>0?`🔴 ${crit} critical`:'') + (done>0?`  ·  ✅ ${done} completed`:'');
+}
+
+function sortBy(col) {
+  sortDir = (sortCol===col) ? sortDir*-1 : 1;
+  sortCol = col;
+  document.querySelectorAll('th').forEach(th=>th.classList.remove('sorted'));
+  event.target.closest('th').classList.add('sorted');
+  applyFilters();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RENDER HELPERS
+// ═══════════════════════════════════════════════════════════════════
+function effortDots(n) {
+  const map={1:1,2:2,3:3,5:4,8:5};
+  const pips=map[n]||Math.min(n,5);
+  let dots='';
+  for(let i=0;i<pips;i++) dots+='<div class="pip"></div>';
+  return `<div class="effort-wrap"><div class="effort-pips">${dots}</div><span class="effort-num">${n}</span></div>`;
+}
+
+function sClass(s){
+  if(s==='To Do')     return 'todo';
+  if(s==='In Progress') return 'inprog';
+  if(s==='Blocked')   return 'blocked';
+  if(s==='Completed') return 'done';
+  return 'backlog';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RENDER TABLE
+// ═══════════════════════════════════════════════════════════════════
+function renderTable(filtered) {
+  const tbody = document.getElementById('tableBody');
+  const empty = document.getElementById('emptyState');
+  if (!filtered.length) { tbody.innerHTML=''; empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+  const isDone = t => t.status==='Completed';
+  tbody.innerHTML = filtered.map(t => {
+    const checked = isDone(t);
+    const gKey = t.googleKey ? JSON.stringify(t.googleKey) : 'null';
+    const canCheck = t.fromGoogle && isAuthenticated;
+    return `<tr class="${checked?'completed-row':''}">
+      <td class="check-col"><input type="checkbox" class="task-check"
+        ${checked?'checked':''} ${!canCheck?'disabled title="Connect Google Tasks to sync status"':''}
+        onchange="onCheckboxChange(${gKey},'${t.status}')" /></td>
+      <td><span class="vbadge ${t.venture}">${t.ventureLabel}</span></td>
+      <td>
+        <div class="task-name">
+          ${t.priority==='Critical'?'🔴 ':t.priority==='High'?'🟠 ':''}${t.name}
+          ${t.isNew?'<span class="new-tag">NEW</span>':''}
+          ${t.fromGoogle?'<span class="google-tag">G</span>':''}
+        </div>
+        <div class="task-desc">${t.desc}</div>
+      </td>
+      <td><span class="cbadge">${t.category}</span></td>
+      <td><span class="pbadge ${t.priority}">${t.priority}</span></td>
+      <td><span class="ubadge ${t.urgency}">${t.urgency}</span></td>
+      <td>${effortDots(t.effort)}</td>
+      <td><span class="sbadge ${sClass(t.status)}">${t.status}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function onCheckboxChange(googleKey, currentStatus) {
+  if (!isAuthenticated || !googleKey) return;
+  toggleTaskComplete(googleKey, currentStatus);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RENDER KANBAN
+// ═══════════════════════════════════════════════════════════════════
+function renderKanban(filtered) {
+  const cols = { Now: [], Soon: [], Later: [] };
+  filtered.forEach(t => (cols[t.urgency]||cols['Later']).push(t));
+  ['Now','Soon','Later'].forEach(u => {
+    document.getElementById(u.toLowerCase()+'Count').textContent = cols[u].length;
+    document.getElementById(u.toLowerCase()+'Cards').innerHTML =
+      cols[u].map(t => `
+        <div class="kanban-card ${t.venture} ${t.status==='Completed'?'completed-card':''}">
+          <div class="kc-top">
+            <span class="vbadge ${t.venture}">${t.ventureLabel}</span>
+            ${t.isNew?'<span class="new-tag">NEW</span>':''}
+            ${t.fromGoogle?'<span class="google-tag">G</span>':''}
+          </div>
+          <div class="kc-name">${t.priority==='Critical'?'🔴 ':t.priority==='High'?'🟠 ':''}${t.name}</div>
+          <div class="kc-desc">${t.desc.length>100?t.desc.slice(0,100)+'…':t.desc}</div>
+          <div class="kc-bottom">
+            <span class="pbadge ${t.priority}">${t.priority}</span>
+            <span class="cbadge">${t.category}</span>
+            <span class="sbadge ${sClass(t.status)}">${t.status}</span>
+            ${effortDots(t.effort)}
+          </div>
+        </div>`).join('') ||
+      '<div style="padding:12px;color:var(--muted);font-size:12px;text-align:center">No tasks</div>';
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// VIEW TOGGLE
+// ═══════════════════════════════════════════════════════════════════
+function setView(v) {
+  document.getElementById('tableView').style.display  = v==='table'?'block':'none';
+  document.getElementById('kanbanView').style.display = v==='kanban'?'flex':'none';
+  document.getElementById('tableViewBtn').classList.toggle('active', v==='table');
+  document.getElementById('kanbanViewBtn').classList.toggle('active', v==='kanban');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', async () => {
+  document.getElementById('currentDate').textContent =
+    new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+
+  buildDashboard([]); // always show template tasks immediately
+
+  if (CONFIG.clientId === 'YOUR_GOOGLE_CLIENT_ID') {
+    setSyncStatus('off', 'Not configured');
+    document.getElementById('setupBanner').classList.remove('hidden');
+    return;
+  }
+
+  // Coming back from Google OAuth redirect? Token lands in URL hash.
+  if (window.location.hash.includes('access_token=') || window.location.hash.includes('error=')) {
+    const ok = checkImplicitCallback();
+    if (ok) { onAuthenticated(); await syncWithGoogle(); }
+    else { renderAuthArea(false); document.getElementById('setupBanner').classList.remove('hidden'); document.getElementById('connectBtn').classList.remove('hidden'); }
+    return;
+  }
+
+  // Check for a valid stored token
+  const token = getValidToken();
+  if (token) {
+    onAuthenticated();
+    await syncWithGoogle();
+  } else {
+    renderAuthArea(false);
+    document.getElementById('setupBanner').classList.remove('hidden');
+    document.getElementById('connectBtn').classList.remove('hidden');
+  }
+});
+</script>
+</body>
+</html>
