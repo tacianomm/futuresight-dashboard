@@ -227,24 +227,11 @@ td{padding:10px 12px;vertical-align:top}
         <span id="syncIcon">⟳</span> Sync
       </button>
       <button id="syncReportBtn" onclick="showSyncReport()" title="View sync details" style="display:none;background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;opacity:.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.6">📋</button>
-      <button id="settingsBtn" onclick="toggleApiKeyPanel()" title="AI matching settings" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;opacity:.5" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.5">⚙️</button>
     </div>
     <div id="authArea"></div>
     <div class="date-badge" id="currentDate"></div>
   </div>
 </header>
-
-<!-- API Key Panel -->
-<div id="apiKeyPanel" style="display:none;position:fixed;top:62px;right:20px;background:#1a1a2e;border:1px solid #334;border-radius:10px;padding:16px;width:320px;z-index:1000;flex-direction:column;gap:10px;box-shadow:0 6px 24px rgba(0,0,0,.6)">
-  <div style="color:#e0e0e0;font-size:13px;font-weight:600">🤖 AI Semantic Matching</div>
-  <div style="color:#777;font-size:11px;line-height:1.5">After each sync, Gemini compares unmatched tasks by meaning within each project to detect cross-source duplicates (O+G). Needs a Google Gemini API key — stored only in your browser.</div>
-  <input id="claudeKeyInput" type="password" placeholder="AIzaSy…" style="background:#111;border:1px solid #333;color:#ccc;padding:8px 10px;border-radius:5px;font-size:12px;width:100%;box-sizing:border-box"/>
-  <div id="apiKeyStatus" style="font-size:11px;color:#6b9;min-height:14px"></div>
-  <div style="display:flex;gap:8px">
-    <button onclick="saveClaudeKey()" style="flex:1;background:#2d6a4f;border:none;color:#fff;padding:8px;border-radius:5px;cursor:pointer;font-size:12px">Save &amp; run now</button>
-    <button onclick="clearClaudeKey()" style="background:#2a2a3a;border:none;color:#aaa;padding:8px 12px;border-radius:5px;cursor:pointer;font-size:12px">Clear</button>
-  </div>
-</div>
 
 <!-- Sync Report Modal -->
 <div id="syncModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;align-items:center;justify-content:center">
@@ -391,6 +378,7 @@ td{padding:10px 12px;vertical-align:top}
 // ═══════════════════════════════════════════════════════════════════
 const CONFIG = {
   clientId: '371728085947-24bpmu41akpf73pqtc4pp3jtg12gsjps.apps.googleusercontent.com',
+  geminiApiKey: 'AIzaSyBWTtFpBN2D8OD8Tb7HH8RGw5a7AMQy83c',
 
   // Map your Google Tasks list names → venture keys in this dashboard
   listMap: {
@@ -656,39 +644,7 @@ function showSyncReport() {
   document.getElementById('syncModal').style.display = 'flex';
 }
 
-// ── SETTINGS (API key panel)
-function toggleApiKeyPanel() {
-  const p = document.getElementById('apiKeyPanel');
-  const open = p.style.display !== 'none' && p.style.display !== '';
-  p.style.display = open ? 'none' : 'flex';
-  if (!open) {
-    const stored = localStorage.getItem('fs_gemini_key');
-    document.getElementById('claudeKeyInput').value = stored ? '••••••••' : '';
-    document.getElementById('apiKeyStatus').textContent =
-      stored ? '✅ Key stored — AI matching active' : 'No key saved yet';
-  }
-}
-function saveClaudeKey() {
-  const raw = document.getElementById('claudeKeyInput').value.trim();
-  const key = raw === '••••••••' ? localStorage.getItem('fs_gemini_key') : raw;
-  if (key) {
-    localStorage.setItem('fs_gemini_key', key);
-    document.getElementById('apiKeyStatus').textContent = '✅ Saved! Running analysis…';
-    document.getElementById('settingsBtn').title = '⚙️ AI matching active';
-    setTimeout(() => document.getElementById('apiKeyPanel').style.display = 'none', 800);
-    runSemanticAnalysis();
-  }
-}
-function clearClaudeKey() {
-  localStorage.removeItem('fs_gemini_key');
-  semanticMatchMap = {};
-  localStorage.removeItem(SEMANTIC_MATCH_KEY);
-  document.getElementById('claudeKeyInput').value = '';
-  document.getElementById('apiKeyStatus').textContent = 'Key cleared.';
-  buildDashboard(Object.values(googleTaskMap));
-}
-
-// ── SEMANTIC ANALYSIS  (runs in background after each sync when API key is present)
+// ── SEMANTIC ANALYSIS  (runs in background after each sync)
 function buildSemanticPrompt(venture, templates, googleTasks) {
   const tList = templates.map((t, i) => `T${i + 1}: "${t.name}"`).join('\n');
   const gList = googleTasks.map((g, i) => `G${i + 1}: "${g.title}"`).join('\n');
@@ -706,7 +662,7 @@ Reply ONLY with lines in the format T#=G# for pairs you are confident represent 
 }
 
 async function runSemanticAnalysis() {
-  const apiKey = localStorage.getItem('fs_gemini_key');
+  const apiKey = CONFIG.geminiApiKey;
   if (!apiKey || !_unmatchedTemplates.length || !_unclaimedGoogleTasks.length) return;
 
   // Group by venture
@@ -1214,11 +1170,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const cached = localStorage.getItem(GTASK_CACHE_KEY);
     if (cached) googleTaskMap = JSON.parse(cached);
   } catch (e) { googleTaskMap = {}; }
-
-  try {
-    const cachedSem = localStorage.getItem(SEMANTIC_MATCH_KEY);
-    if (cachedSem) semanticMatchMap = JSON.parse(cachedSem);
-  } catch (e) { semanticMatchMap = {}; }
 
   buildDashboard(Object.values(googleTaskMap)); // render templates + any cached Google Tasks
 
