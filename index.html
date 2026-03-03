@@ -227,11 +227,24 @@ td{padding:10px 12px;vertical-align:top}
         <span id="syncIcon">⟳</span> Sync
       </button>
       <button id="syncReportBtn" onclick="showSyncReport()" title="View sync details" style="display:none;background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;opacity:.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.6">📋</button>
+      <button id="settingsBtn" onclick="toggleApiKeyPanel()" title="AI matching settings" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;opacity:.5" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.5">⚙️</button>
     </div>
     <div id="authArea"></div>
     <div class="date-badge" id="currentDate"></div>
   </div>
 </header>
+
+<!-- API Key Panel -->
+<div id="apiKeyPanel" style="display:none;position:fixed;top:62px;right:20px;background:#1a1a2e;border:1px solid #334;border-radius:10px;padding:16px;width:320px;z-index:1000;flex-direction:column;gap:10px;box-shadow:0 6px 24px rgba(0,0,0,.6)">
+  <div style="color:#e0e0e0;font-size:13px;font-weight:600">🤖 AI Semantic Matching</div>
+  <div style="color:#777;font-size:11px;line-height:1.5">After each sync, Claude compares unmatched tasks by meaning within each project to detect cross-source duplicates (O+G). Needs an Anthropic API key — stored only in your browser.</div>
+  <input id="claudeKeyInput" type="password" placeholder="sk-ant-api03-…" style="background:#111;border:1px solid #333;color:#ccc;padding:8px 10px;border-radius:5px;font-size:12px;width:100%;box-sizing:border-box"/>
+  <div id="apiKeyStatus" style="font-size:11px;color:#6b9;min-height:14px"></div>
+  <div style="display:flex;gap:8px">
+    <button onclick="saveClaudeKey()" style="flex:1;background:#2d6a4f;border:none;color:#fff;padding:8px;border-radius:5px;cursor:pointer;font-size:12px">Save &amp; run now</button>
+    <button onclick="clearClaudeKey()" style="background:#2a2a3a;border:none;color:#aaa;padding:8px 12px;border-radius:5px;cursor:pointer;font-size:12px">Clear</button>
+  </div>
+</div>
 
 <!-- Sync Report Modal -->
 <div id="syncModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;align-items:center;justify-content:center">
@@ -398,7 +411,7 @@ const CONFIG = {
 const taskTemplates = [
   // ── FLOWAR ─────────────────────────────────────────────────────
   {venture:'flowar',ventureLabel:'FlowAR',name:'Define pilot onboarding process',desc:'Document the end-to-end onboarding flow for AR pilots: data intake, account setup, first call review, escalation handoff.',category:'Operations',priority:'High',urgency:'Now',effort:2,isNew:false,source:'claude'},
-  {venture:'flowar',ventureLabel:'FlowAR',name:'Complete Validation Memo',desc:'Synthesize Silvio, Cary & WealthTech interviews into final validation memo. Critical before any pilot decisions.',category:'Strategy',priority:'Critical',urgency:'Now',effort:3,isNew:false,source:'claude'},
+  {venture:'flowar',ventureLabel:'FlowAR',name:'[TOP] Create Validation Memo',desc:'Synthesize Silvio, Cary & WealthTech interviews into final validation memo. Critical before any pilot decisions.',category:'Strategy',priority:'Critical',urgency:'Now',effort:3,isNew:false,source:'claude'},
   {venture:'flowar',ventureLabel:'FlowAR',name:'Create Data Dump document',desc:'Design data submission "package" for pilots: aging report, invoices, payment history. Set ~20 accounts/pilot cap.',category:'Operations',priority:'Critical',urgency:'Now',effort:2,isNew:false,source:'claude'},
   {venture:'flowar',ventureLabel:'FlowAR',name:'Define pilot success metrics & KPIs',desc:'Set go/no-go criteria before pilots launch. E.g., 30%+ collections improvement, <20% monthly churn. Align with Nabil.',category:'Strategy',priority:'Critical',urgency:'Now',effort:2,isNew:true,source:'claude'},
   {venture:'flowar',ventureLabel:'FlowAR',name:'Consider callback flow design',desc:'Decide: AI pickup vs. routing to client for escalations. Define single callback number with internal routing logic.',category:'Product',priority:'High',urgency:'Now',effort:2,isNew:false,source:'claude'},
@@ -619,6 +632,10 @@ function renderAuthArea(signedIn) {
 // ═══════════════════════════════════════════════════════════════════
 let googleTaskMap = {};
 const GTASK_CACHE_KEY = 'fs_gtask_cache';
+let semanticMatchMap = {};           // templateKey → googleKey, learned by AI analysis
+const SEMANTIC_MATCH_KEY = 'fs_semantic_matches';
+let _unmatchedTemplates  = [];       // templates with no Google match (fed to AI)
+let _unclaimedGoogleTasks = [];      // Google tasks with no template match (fed to AI)
 let _lastSyncReport = null;
 
 function showSyncReport() {
@@ -637,6 +654,118 @@ function showSyncReport() {
   document.getElementById('syncModalText').value = lines.join('\n');
   document.getElementById('syncCopyBtn').textContent = '📋 Copy to Clipboard';
   document.getElementById('syncModal').style.display = 'flex';
+}
+
+// ── SETTINGS (API key panel)
+function toggleApiKeyPanel() {
+  const p = document.getElementById('apiKeyPanel');
+  const open = p.style.display !== 'none' && p.style.display !== '';
+  p.style.display = open ? 'none' : 'flex';
+  if (!open) {
+    const stored = localStorage.getItem('fs_claude_key');
+    document.getElementById('claudeKeyInput').value = stored ? '••••••••' : '';
+    document.getElementById('apiKeyStatus').textContent =
+      stored ? '✅ Key stored — AI matching active' : 'No key saved yet';
+  }
+}
+function saveClaudeKey() {
+  const raw = document.getElementById('claudeKeyInput').value.trim();
+  const key = raw === '••••••••' ? localStorage.getItem('fs_claude_key') : raw;
+  if (key) {
+    localStorage.setItem('fs_claude_key', key);
+    document.getElementById('apiKeyStatus').textContent = '✅ Saved! Running analysis…';
+    document.getElementById('settingsBtn').title = '⚙️ AI matching active';
+    setTimeout(() => document.getElementById('apiKeyPanel').style.display = 'none', 800);
+    runSemanticAnalysis();
+  }
+}
+function clearClaudeKey() {
+  localStorage.removeItem('fs_claude_key');
+  semanticMatchMap = {};
+  localStorage.removeItem(SEMANTIC_MATCH_KEY);
+  document.getElementById('claudeKeyInput').value = '';
+  document.getElementById('apiKeyStatus').textContent = 'Key cleared.';
+  buildDashboard(Object.values(googleTaskMap));
+}
+
+// ── SEMANTIC ANALYSIS  (runs in background after each sync when API key is present)
+function buildSemanticPrompt(venture, templates, googleTasks) {
+  const tList = templates.map((t, i) => `T${i + 1}: "${t.name}"`).join('\n');
+  const gList = googleTasks.map((g, i) => `G${i + 1}: "${g.title}"`).join('\n');
+  return `You are deduplicating tasks from two systems for the same project. Some tasks represent the same work item but are phrased differently (e.g. "Complete Validation Memo" vs "[TOP] Create Validation Memo").
+
+Project: ${venture}
+
+Dashboard templates not yet found in Google Tasks:
+${tList}
+
+Google Tasks not yet matched to a template:
+${gList}
+
+Reply ONLY with lines in the format T#=G# for pairs you are confident represent the same task. No explanation, no extra text.`;
+}
+
+async function runSemanticAnalysis() {
+  const apiKey = localStorage.getItem('fs_claude_key');
+  if (!apiKey || !_unmatchedTemplates.length || !_unclaimedGoogleTasks.length) return;
+
+  // Group by venture
+  const byVenture = {};
+  for (const t of _unmatchedTemplates)
+    (byVenture[t.venture] ??= { templates: [], google: [] }).templates.push(t);
+  for (const g of _unclaimedGoogleTasks)
+    if (byVenture[g.venture]) byVenture[g.venture].google.push(g);
+
+  const prevStatus = document.getElementById('syncTime').textContent;
+  setSyncStatus('ok', prevStatus + '  🤖');
+
+  const newMatches = { ...semanticMatchMap };
+  let changed = false;
+
+  for (const [venture, { templates, google }] of Object.entries(byVenture)) {
+    if (!templates.length || !google.length) continue;
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-calls': 'true',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 512,
+          messages: [{ role: 'user', content: buildSemanticPrompt(venture, templates, google) }],
+        }),
+      });
+      if (!res.ok) { console.warn('[FutureSight] Semantic API', res.status, venture); continue; }
+      const data = await res.json();
+      const text = data.content?.[0]?.text || '';
+      for (const line of text.trim().split('\n')) {
+        const m = line.trim().match(/^T(\d+)=G(\d+)$/i);
+        if (m) {
+          const tmpl = templates[+m[1] - 1];
+          const gtask = google[+m[2] - 1];
+          if (tmpl && gtask) {
+            const tKey = normalizeTitle(tmpl.name);
+            const gKey = normalizeTitle(gtask.title);
+            if (!newMatches[tKey]) { newMatches[tKey] = gKey; changed = true; }
+            console.log(`[FutureSight] 🤖 Semantic match (${venture}): "${tmpl.name}" ↔ "${gtask.title}"`);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[FutureSight] Semantic analysis error for', venture, e);
+    }
+  }
+
+  setSyncStatus('ok', prevStatus);   // restore original status text
+  if (changed) {
+    semanticMatchMap = newMatches;
+    localStorage.setItem(SEMANTIC_MATCH_KEY, JSON.stringify(semanticMatchMap));
+    buildDashboard(Object.values(googleTaskMap));  // rebuild with new AI matches
+  }
 }
 
 // ── LOCAL COMPLETION STATE (for template tasks not in Google Tasks)
@@ -740,10 +869,23 @@ async function syncWithGoogle() {
   document.getElementById('syncIcon').classList.remove('spin');
   document.getElementById('syncBtn').disabled = false;
   buildDashboard(Object.values(googleTaskMap));
+  runSemanticAnalysis(); // run AI matching in background (no-op if no API key set)
 }
 
 function normalizeTitle(t) {
   return (t || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+// Returns fraction of meaningful words (len>2) shared by both titles.
+// Requires at least 2 shared words; used for fuzzy duplicate detection.
+function titleSimilarity(a, b) {
+  const words = s => new Set(normalizeTitle(s).split(' ').filter(w => w.length > 2));
+  const wa = words(a), wb = words(b);
+  if (!wa.size || !wb.size) return 0;
+  let overlap = 0;
+  for (const w of wa) if (wb.has(w)) overlap++;
+  if (overlap < 2) return 0;                          // guard against single-word flukes
+  return overlap / Math.min(wa.size, wb.size);         // fraction of smaller set that matched
 }
 
 async function toggleTaskComplete(taskKey, currentStatus) {
@@ -791,7 +933,30 @@ function buildDashboard(googleItems) {
   // 1. Start from templates — overlay Google status + local done state
   for (const t of taskTemplates) {
     const key = normalizeTitle(t.name);
-    const g = googleTaskMap[key];
+
+    // a) Exact title match
+    let g = googleTaskMap[key];
+    let gKey = key;
+
+    // b) Fuzzy match: same venture + ≥50% meaningful-word overlap + ≥2 shared words
+    if (!g) {
+      let best = 0;
+      for (const [k, gTask] of Object.entries(googleTaskMap)) {
+        if (usedKeys.has(k)) continue;           // already claimed by another template
+        if (gTask.venture !== t.venture) continue; // must be same project
+        const score = titleSimilarity(t.name, gTask.title);
+        if (score >= 0.5 && score > best) { best = score; g = gTask; gKey = k; }
+      }
+    }
+
+    // c) Semantic match (pre-computed by AI analysis)
+    if (!g && semanticMatchMap[key]) {
+      const sKey = semanticMatchMap[key];
+      if (!usedKeys.has(sKey) && googleTaskMap[sKey]) {
+        g = googleTaskMap[sKey]; gKey = sKey;
+      }
+    }
+
     const defaultStatus = t.defaultStatus || 'To Do';
     const status = (g && g.status === 'completed') || localDone[key]
       ? 'Completed'
@@ -799,11 +964,15 @@ function buildDashboard(googleItems) {
     merged.push({
       ...t,
       status,
-      googleKey: key,
+      googleKey: gKey,   // actual googleTaskMap key — used by toggleTaskComplete for PATCH
       fromGoogle: !!g,
     });
-    usedKeys.add(key);
+    usedKeys.add(gKey);  // claim the google-side key so it won't appear as a duplicate row
   }
+
+  // Snapshot unmatched data for AI analysis (done here, before Google-only tasks are appended)
+  _unmatchedTemplates = merged.filter(m => !m.fromGoogle);
+  _unclaimedGoogleTasks = Object.values(googleTaskMap).filter(g => !usedKeys.has(normalizeTitle(g.title)));
 
   // 2. Add Google Tasks tasks not in templates (new tasks added directly in Google)
   for (const g of googleItems) {
@@ -1048,6 +1217,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const cached = localStorage.getItem(GTASK_CACHE_KEY);
     if (cached) googleTaskMap = JSON.parse(cached);
   } catch (e) { googleTaskMap = {}; }
+
+  try {
+    const cachedSem = localStorage.getItem(SEMANTIC_MATCH_KEY);
+    if (cachedSem) semanticMatchMap = JSON.parse(cachedSem);
+  } catch (e) { semanticMatchMap = {}; }
 
   buildDashboard(Object.values(googleTaskMap)); // render templates + any cached Google Tasks
 
