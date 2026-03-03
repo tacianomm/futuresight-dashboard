@@ -237,8 +237,8 @@ td{padding:10px 12px;vertical-align:top}
 <!-- API Key Panel -->
 <div id="apiKeyPanel" style="display:none;position:fixed;top:62px;right:20px;background:#1a1a2e;border:1px solid #334;border-radius:10px;padding:16px;width:320px;z-index:1000;flex-direction:column;gap:10px;box-shadow:0 6px 24px rgba(0,0,0,.6)">
   <div style="color:#e0e0e0;font-size:13px;font-weight:600">🤖 AI Semantic Matching</div>
-  <div style="color:#777;font-size:11px;line-height:1.5">After each sync, Claude compares unmatched tasks by meaning within each project to detect cross-source duplicates (O+G). Needs an Anthropic API key — stored only in your browser.</div>
-  <input id="claudeKeyInput" type="password" placeholder="sk-ant-api03-…" style="background:#111;border:1px solid #333;color:#ccc;padding:8px 10px;border-radius:5px;font-size:12px;width:100%;box-sizing:border-box"/>
+  <div style="color:#777;font-size:11px;line-height:1.5">After each sync, Gemini compares unmatched tasks by meaning within each project to detect cross-source duplicates (O+G). Needs a Google Gemini API key — stored only in your browser.</div>
+  <input id="claudeKeyInput" type="password" placeholder="AIzaSy…" style="background:#111;border:1px solid #333;color:#ccc;padding:8px 10px;border-radius:5px;font-size:12px;width:100%;box-sizing:border-box"/>
   <div id="apiKeyStatus" style="font-size:11px;color:#6b9;min-height:14px"></div>
   <div style="display:flex;gap:8px">
     <button onclick="saveClaudeKey()" style="flex:1;background:#2d6a4f;border:none;color:#fff;padding:8px;border-radius:5px;cursor:pointer;font-size:12px">Save &amp; run now</button>
@@ -662,7 +662,7 @@ function toggleApiKeyPanel() {
   const open = p.style.display !== 'none' && p.style.display !== '';
   p.style.display = open ? 'none' : 'flex';
   if (!open) {
-    const stored = localStorage.getItem('fs_claude_key');
+    const stored = localStorage.getItem('fs_gemini_key');
     document.getElementById('claudeKeyInput').value = stored ? '••••••••' : '';
     document.getElementById('apiKeyStatus').textContent =
       stored ? '✅ Key stored — AI matching active' : 'No key saved yet';
@@ -670,9 +670,9 @@ function toggleApiKeyPanel() {
 }
 function saveClaudeKey() {
   const raw = document.getElementById('claudeKeyInput').value.trim();
-  const key = raw === '••••••••' ? localStorage.getItem('fs_claude_key') : raw;
+  const key = raw === '••••••••' ? localStorage.getItem('fs_gemini_key') : raw;
   if (key) {
-    localStorage.setItem('fs_claude_key', key);
+    localStorage.setItem('fs_gemini_key', key);
     document.getElementById('apiKeyStatus').textContent = '✅ Saved! Running analysis…';
     document.getElementById('settingsBtn').title = '⚙️ AI matching active';
     setTimeout(() => document.getElementById('apiKeyPanel').style.display = 'none', 800);
@@ -680,7 +680,7 @@ function saveClaudeKey() {
   }
 }
 function clearClaudeKey() {
-  localStorage.removeItem('fs_claude_key');
+  localStorage.removeItem('fs_gemini_key');
   semanticMatchMap = {};
   localStorage.removeItem(SEMANTIC_MATCH_KEY);
   document.getElementById('claudeKeyInput').value = '';
@@ -706,7 +706,7 @@ Reply ONLY with lines in the format T#=G# for pairs you are confident represent 
 }
 
 async function runSemanticAnalysis() {
-  const apiKey = localStorage.getItem('fs_claude_key');
+  const apiKey = localStorage.getItem('fs_gemini_key');
   if (!apiKey || !_unmatchedTemplates.length || !_unclaimedGoogleTasks.length) return;
 
   // Group by venture
@@ -725,23 +725,20 @@ async function runSemanticAnalysis() {
   for (const [venture, { templates, google }] of Object.entries(byVenture)) {
     if (!templates.length || !google.length) continue;
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-calls': 'true',
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 512,
-          messages: [{ role: 'user', content: buildSemanticPrompt(venture, templates, google) }],
-        }),
-      });
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: buildSemanticPrompt(venture, templates, google) }] }],
+            generationConfig: { maxOutputTokens: 512, temperature: 0 },
+          }),
+        }
+      );
       if (!res.ok) { console.warn('[FutureSight] Semantic API', res.status, venture); continue; }
       const data = await res.json();
-      const text = data.content?.[0]?.text || '';
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       for (const line of text.trim().split('\n')) {
         const m = line.trim().match(/^T(\d+)=G(\d+)$/i);
         if (m) {
@@ -751,7 +748,7 @@ async function runSemanticAnalysis() {
             const tKey = normalizeTitle(tmpl.name);
             const gKey = normalizeTitle(gtask.title);
             if (!newMatches[tKey]) { newMatches[tKey] = gKey; changed = true; }
-            console.log(`[FutureSight] 🤖 Semantic match (${venture}): "${tmpl.name}" ↔ "${gtask.title}"`);
+            console.log(`[FutureSight] 🤖 Gemini match (${venture}): "${tmpl.name}" ↔ "${gtask.title}"`);
           }
         }
       }
