@@ -324,6 +324,10 @@ td{padding:10px 12px;vertical-align:top}
 .vc-stat{text-align:center}
 .vc-stat .n{font-size:18px;font-weight:700;color:#fff;line-height:1}
 .vc-stat .l{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
+.vc-health{display:flex;align-items:center;gap:5px;margin:8px 0 2px;flex-wrap:wrap}
+.vc-health-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.vc-health-label{font-size:11px;font-weight:600}
+.vc-health-note{font-size:10px;color:var(--muted);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .vc-tasks{border-top:1px solid var(--border);padding-top:10px;display:flex;flex-direction:column;gap:5px}
 .vc-task{font-size:11px;color:var(--muted);line-height:1.3;display:flex;gap:5px;align-items:flex-start}
 .vc-task-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;margin-top:3px}
@@ -1328,18 +1332,35 @@ function buildVentureCards() {
   const container = document.getElementById('ventureOverviewCards');
   if (!container) return;
   const PRIORITY_COLORS_MAP = {Critical:'#ef4444',High:'#f97316',Medium:'#eab308',Low:'#6b7280'};
+  const STATUS_TO_DOT = { 'on-track':'green', 'at-risk':'yellow', 'blocked':'red', 'milestone':'green' };
+  const STATUS_LABELS = { 'on-track':'On Track', 'at-risk':'At Risk', 'blocked':'Blocked', 'milestone':'🎉 Milestone' };
+  const STATUS_COLORS = { 'on-track':'#22c55e', 'at-risk':'#eab308', 'blocked':'#ef4444', 'milestone':'#60a5fa' };
+  const DOT_COLORS    = { red:'#ef4444', yellow:'#eab308', green:'#22c55e' };
+
   container.innerHTML = VENTURE_DEFS.map(v => {
-    const vt      = tasks.filter(t => t.venture === v.key);
-    const active  = vt.filter(t => t.status !== 'Completed');
-    const crit    = active.filter(t => t.priority === 'Critical').length;
-    const stage   = CONFIG.ventureStages[v.key] || 1;
+    const vt       = tasks.filter(t => t.venture === v.key);
+    const active   = vt.filter(t => t.status !== 'Completed');
+    const crit     = active.filter(t => t.priority === 'Critical').length;
+    const stage    = CONFIG.ventureStages[v.key] || 1;
     const stageName = STAGE_NAMES[stage] || '';
-    const topTasks  = [...active]
+    const topTasks = [...active]
       .sort((a,b)=>({Critical:0,High:1,Medium:2,Low:3}[a.priority]-{Critical:0,High:1,Medium:2,Low:3}[b.priority]))
       .slice(0,3);
     const dots = [1,2,3,4,5].map(n =>
       `<div class="vc-dot ${n < stage ? 'done' : n === stage ? 'active' : ''}" style="${n<=stage?'background:'+v.color:''};${n===stage?'height:6px':''}"></div>`
     ).join('');
+
+    // Health: manual override wins over auto
+    const { status, note } = getVentureHealth(v.key);
+    const autoDot   = computeAutoHealth(v.key);
+    const manualKey = (status && status !== 'auto') ? status : null;
+    const dotColor  = manualKey ? (STATUS_TO_DOT[manualKey] || autoDot) : autoDot;
+    const dotHex    = DOT_COLORS[dotColor];
+    const statusLabel = manualKey
+      ? STATUS_LABELS[manualKey]
+      : (autoDot === 'red' ? 'Needs action' : autoDot === 'yellow' ? 'Watch closely' : 'On track');
+    const statusColor = manualKey ? STATUS_COLORS[manualKey] : dotHex;
+
     return `
       <div class="vc ${v.cls}" onclick="switchVenture(document.querySelector('.vtab[data-venture=${v.key}]'))">
         <div class="vc-name">${v.emoji} ${v.label}</div>
@@ -1348,6 +1369,11 @@ function buildVentureCards() {
         <div class="vc-stats">
           <div class="vc-stat"><div class="n">${active.length}</div><div class="l">Active</div></div>
           ${crit > 0 ? `<div class="vc-stat"><div class="n" style="color:#ef4444">${crit}</div><div class="l">Critical</div></div>` : ''}
+        </div>
+        <div class="vc-health" title="${note || statusLabel}">
+          <span class="vc-health-dot" style="background:${dotHex};box-shadow:0 0 5px ${dotHex}66"></span>
+          <span class="vc-health-label" style="color:${statusColor}">${statusLabel}</span>
+          ${note ? `<span class="vc-health-note">&nbsp;· ${note.length>36?note.slice(0,36)+'…':note}</span>` : ''}
         </div>
         ${topTasks.length ? `<div class="vc-tasks">${topTasks.map(t=>`
           <div class="vc-task">
@@ -1861,17 +1887,34 @@ function buildStats() {
       <div class="sub">${Math.round(weekHrs)} hrs queued · ${WEEKLY_CAP} hr capacity</div>
       <div class="capacity-bar"><div class="capacity-fill${isOver?' over':''}" style="width:${capPct}%"></div></div>
     </div>
-    <div class="stat-card" title="Health per venture">
-      <div class="label">🏢 Venture Pulse</div>
-      <div class="vdot-row">
-        ${health.map(h => `<span class="vdot" title="${h.tooltip}"><span class="vdot-circle ${h.color}"></span>${h.name.split('/')[0]}</span>`).join('')}
+    <div class="stat-card critical-now" title="Tasks that are both Critical priority and Now urgency — the real fires">
+      <div class="label">🔴 Critical Now</div>
+      <div class="value" style="color:#ef4444">${working.filter(t=>t.priority==='Critical'&&t.urgency==='Now').length}</div>
+      <div class="sub" style="margin-top:4px">
+        ${(() => {
+          const byV = VENTURES.map(v => {
+            const n = working.filter(t=>t.venture===v&&t.priority==='Critical'&&t.urgency==='Now').length;
+            const color = {flowar:'#3b82f6',homeservices:'#22c55e',legal:'#a855f7',dental:'#f59e0b',voice:'#06b6d4'}[v]||'#6366f1';
+            return n > 0 ? `<span style="color:${color}">${VENTURE_NAMES[v].split('/')[0]}&nbsp;${n}</span>` : '';
+          }).filter(Boolean);
+          return byV.length ? byV.join('<span style="color:#444">&nbsp;·&nbsp;</span>') : '<span style="color:#22c55e">No fires right now 🎉</span>';
+        })()}
       </div>
-      <div class="sub" style="margin-top:6px">${redCount > 0 ? `${redCount} venture${redCount>1?'s':''} need immediate action` : 'All ventures on track'}</div>
     </div>
     <div class="stat-card">
       <div class="label">✅ Completed</div>
       <div class="value">${tasks.filter(t => t.status==='Completed').length}</div>
-      <div class="sub">${stale.length} backlog · ${working.filter(t=>t.isNew).length} new tasks</div>
+      <div class="sub">${stale.length} backlog · ${working.filter(t=>t.isNew).length} new</div>
+      ${(() => {
+        const VCOLS = {flowar:'#3b82f6',homeservices:'#22c55e',legal:'#a855f7',dental:'#f59e0b',voice:'#06b6d4'};
+        const total = Math.max(1, working.length);
+        const bars = VENTURES.map(v => {
+          const n = working.filter(t=>t.venture===v).length;
+          const pct = Math.round(n/total*100);
+          return pct > 0 ? `<div title="${VENTURE_NAMES[v]}: ${n}" style="flex:${pct};background:${VCOLS[v]};height:4px;border-radius:2px;min-width:3px"></div>` : '';
+        }).filter(Boolean).join('<div style="width:2px"></div>');
+        return `<div style="display:flex;gap:0;margin-top:8px;height:4px;align-items:center">${bars}</div>`;
+      })()}
     </div>`;
 
   // ── Focus panels ─────────────────────────────────────────────────────
