@@ -1167,11 +1167,11 @@ async function toggleTaskComplete(taskKey, currentStatus) {
     }
   }
 
-  // For non-Google tasks, persist done state (Supabase + localStorage fallback)
-  if (!googleTaskMap[taskKey]) {
-    const taskObj = tasks.find(t => (t.googleKey || normalizeTitle(t.name)) === taskKey);
-    setLocalDone(taskKey, newDone, taskObj?.venture || '');
-  }
+  // Always persist done state to Supabase + localStorage.
+  // Google Tasks is patched above for synced tasks, but Supabase is the
+  // persistent record for ALL tasks regardless of their Google Tasks status.
+  const taskObj = tasks.find(t => (t.googleKey || normalizeTitle(t.name)) === taskKey);
+  setLocalDone(taskKey, newDone, taskObj?.venture || '');
   buildDashboard(Object.values(googleTaskMap));
 }
 
