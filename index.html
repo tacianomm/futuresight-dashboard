@@ -236,6 +236,28 @@ td{padding:10px 12px;vertical-align:top}
   .header,.stats-bar,.controls,.table-wrap,.kanban-wrap,.legend,.results-bar{padding-left:16px;padding-right:16px}
   .stats-bar{flex-direction:column}
 }
+/* ── VENTURE HEALTH WIDGET ── */
+.venture-health-bar{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 16px;margin-bottom:12px;flex-wrap:wrap}
+.vh-dot{width:11px;height:11px;border-radius:50%;flex-shrink:0}
+.vh-dot.red{background:#ef4444;box-shadow:0 0 6px #ef444488}
+.vh-dot.yellow{background:#eab308;box-shadow:0 0 6px #eab30888}
+.vh-dot.green{background:#22c55e;box-shadow:0 0 6px #22c55e88}
+.vh-auto-label{font-size:11px;color:var(--muted)}
+.vh-divider{width:1px;height:16px;background:var(--border)}
+.vh-status-pills{display:flex;gap:5px}
+.vh-pill{font-size:11px;padding:3px 10px;border-radius:20px;border:1px solid var(--border);color:var(--muted);cursor:pointer;background:transparent;transition:all .15s}
+.vh-pill:hover{border-color:#555;color:#ccc}
+.vh-pill.active{color:#fff;border-color:transparent}
+.vh-pill.active.on-track{background:#166534;border-color:#22c55e44;color:#86efac}
+.vh-pill.active.at-risk{background:#78350f;border-color:#f9731644;color:#fdba74}
+.vh-pill.active.blocked{background:#7f1d1d;border-color:#ef444444;color:#fca5a5}
+.vh-pill.active.milestone{background:#1e3a5f;border-color:#60a5fa44;color:#93c5fd}
+.vh-note-wrap{flex:1;min-width:180px;display:flex;align-items:center;gap:6px}
+.vh-note{background:transparent;border:none;border-bottom:1px solid var(--border);color:#ccc;font-size:12px;width:100%;outline:none;padding:2px 4px;transition:border-color .15s}
+.vh-note:focus{border-bottom-color:var(--accent)}
+.vh-note::placeholder{color:#555}
+.vh-save-btn{font-size:10px;padding:3px 8px;background:var(--accent);border:none;color:#fff;border-radius:4px;cursor:pointer;opacity:0;transition:opacity .15s}
+.vh-note-wrap:focus-within .vh-save-btn{opacity:1}
 /* ── STAGE PANEL ── */
 .stage-panel{padding:0 32px 8px}
 .stage-progress-wrap{display:flex;align-items:center;gap:0;margin-bottom:16px;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}
@@ -419,6 +441,7 @@ td{padding:10px 12px;vertical-align:top}
 
 <!-- ── STAGE PANEL (shows when a specific venture is selected) ── -->
 <div class="stage-panel hidden" id="stagePanel">
+  <div id="ventureHealthBar"></div>
   <div class="stage-progress-wrap" id="stageProgressWrap"></div>
   <div class="stage-content-grid">
     <div class="playbook-col">
@@ -1351,6 +1374,8 @@ function buildStagePanel(venture) {
   if (overviewCards) overviewCards.style.display = 'none';
   panel.classList.remove('hidden');
 
+  buildVentureHealthBar(venture);
+
   const stage     = CONFIG.ventureStages[venture] || 1;
   const vColor    = VENTURE_COLORS[venture] || '#6366f1';
   const pbData    = getPlaybookData();
@@ -1680,6 +1705,79 @@ function setSyncStatus(state, msg) {
 // ═══════════════════════════════════════════════════════════════════
 // STATS
 // ═══════════════════════════════════════════════════════════════════
+// ─── Venture health helpers ──────────────────────────────────────────────────
+// Status and note stored in playbook_states using special artifact keys
+const VH_STATUS_KEY = '_venture_status';
+const VH_NOTE_KEY   = '_venture_note';
+
+const VH_STATUSES = [
+  { key:'on-track',  label:'On Track',  emoji:'🟢' },
+  { key:'at-risk',   label:'At Risk',   emoji:'🟡' },
+  { key:'blocked',   label:'Blocked',   emoji:'🔴' },
+  { key:'milestone', label:'Milestone', emoji:'🎉' },
+];
+
+function getVentureHealth(venture) {
+  const pb = getPlaybookData()[venture] || {};
+  return {
+    status: pb[VH_STATUS_KEY] || null,   // null = auto
+    note:   pb[VH_NOTE_KEY]   || '',
+  };
+}
+
+function saveVentureStatus(venture, status) {
+  savePlaybookStatus(venture, VH_STATUS_KEY, status || 'auto');
+  buildStagePanel(venture);
+  buildStats(); // refresh pulse card
+}
+
+function saveVentureNote(venture, note) {
+  savePlaybookStatus(venture, VH_NOTE_KEY, note);
+}
+
+function computeAutoHealth(venture) {
+  const active = tasks.filter(t => t.venture === venture && t.status !== 'Completed' && !t.stale);
+  if (active.some(t => t.priority === 'Critical' && t.urgency === 'Now')) return 'red';
+  if (active.some(t => t.priority === 'High'     && t.urgency === 'Now')) return 'yellow';
+  return 'green';
+}
+
+function buildVentureHealthBar(venture) {
+  const bar = document.getElementById('ventureHealthBar');
+  if (!bar) return;
+
+  const { status, note } = getVentureHealth(venture);
+  const autoDot   = computeAutoHealth(venture);
+  const autoLabel = autoDot === 'red' ? 'Needs action' : autoDot === 'yellow' ? 'Watch closely' : 'All clear';
+
+  const pillsHtml = VH_STATUSES.map(s => {
+    const isActive = status === s.key ? ' active ' + s.key : '';
+    return `<button class="vh-pill${isActive}" onclick="saveVentureStatus('${venture}','${s.key}')">${s.emoji} ${s.label}</button>`;
+  }).join('');
+
+  // "Auto" pill clears the override
+  const autoActive = (!status || status === 'auto') ? ' active on-track' : '';
+
+  bar.innerHTML = `
+    <div class="venture-health-bar">
+      <span class="vh-dot ${autoDot}" title="Auto: ${autoLabel}"></span>
+      <span class="vh-auto-label">Auto: ${autoLabel}</span>
+      <span class="vh-divider"></span>
+      <div class="vh-status-pills">
+        <button class="vh-pill${autoActive}" onclick="saveVentureStatus('${venture}','auto')" title="Let tasks determine health">Auto</button>
+        ${pillsHtml}
+      </div>
+      <span class="vh-divider"></span>
+      <div class="vh-note-wrap">
+        <input class="vh-note" id="vh-note-${venture}" type="text" maxlength="120"
+          placeholder="Add a status note… (e.g. 'Pilots launching next week')"
+          value="${note.replace(/"/g,'&quot;')}"
+          onkeydown="if(event.key==='Enter'){saveVentureNote('${venture}',this.value);this.blur()}">
+        <button class="vh-save-btn" onclick="saveVentureNote('${venture}',document.getElementById('vh-note-${venture}').value)">Save</button>
+      </div>
+    </div>`;
+}
+
 // ─── Task scoring ────────────────────────────────────────────────────────────
 function scoreTask(t) {
   const p = { Critical:40, High:30, Medium:20, Low:10 }[t.priority] || 10;
@@ -1737,12 +1835,16 @@ function buildStats() {
   const isOver      = weekHrs > WEEKLY_CAP;
 
   // ── Venture health dots ──────────────────────────────────────────────
+  // Venture health: manual override (if set) wins over auto-computed
+  const STATUS_TO_DOT = { 'on-track':'green', 'at-risk':'yellow', 'blocked':'red', 'milestone':'green' };
   const health = VENTURES.map(v => {
-    const vt = working.filter(t => t.venture === v);
-    const color = vt.some(t => t.priority === 'Critical' && t.urgency === 'Now') ? 'red'
-                : vt.some(t => t.priority === 'High'     && t.urgency === 'Now') ? 'yellow'
-                : 'green';
-    return { v, name: VENTURE_NAMES[v], color };
+    const autoColor = computeAutoHealth(v);
+    const { status, note } = getVentureHealth(v);
+    const manualColor = (status && status !== 'auto') ? (STATUS_TO_DOT[status] || autoColor) : null;
+    const color = manualColor || autoColor;
+    const manualStatus = (status && status !== 'auto') ? VH_STATUSES.find(s => s.key === status) : null;
+    const tooltip = [manualStatus ? manualStatus.emoji + ' ' + manualStatus.label : null, note].filter(Boolean).join(' · ') || VENTURE_NAMES[v];
+    return { v, name: VENTURE_NAMES[v], color, tooltip };
   });
   const redCount = health.filter(h => h.color === 'red').length;
 
@@ -1762,7 +1864,7 @@ function buildStats() {
     <div class="stat-card" title="Health per venture">
       <div class="label">🏢 Venture Pulse</div>
       <div class="vdot-row">
-        ${health.map(h => `<span class="vdot" title="${h.name}"><span class="vdot-circle ${h.color}"></span>${h.name.split('/')[0]}</span>`).join('')}
+        ${health.map(h => `<span class="vdot" title="${h.tooltip}"><span class="vdot-circle ${h.color}"></span>${h.name.split('/')[0]}</span>`).join('')}
       </div>
       <div class="sub" style="margin-top:6px">${redCount > 0 ? `${redCount} venture${redCount>1?'s':''} need immediate action` : 'All ventures on track'}</div>
     </div>
