@@ -925,14 +925,21 @@ function initDB() {
 }
 
 async function loadDBState() {
-  if (!_dbClient) return;
+  if (!_dbClient) { console.warn('[DB] No client — skipping load'); return; }
+  console.log('[DB] Fetching state from Supabase…');
   try {
     const [taskRes, pbRes] = await Promise.all([
       _dbClient.from('task_states').select('*'),
       _dbClient.from('playbook_states').select('*'),
     ]);
-    if (taskRes.error) throw taskRes.error;
-    if (pbRes.error)   throw pbRes.error;
+    if (taskRes.error) {
+      console.error('[DB] task_states error:', taskRes.error.message, '— hint: RLS may be blocking reads. Run the policy SQL in Supabase SQL Editor.');
+      throw taskRes.error;
+    }
+    if (pbRes.error) {
+      console.error('[DB] playbook_states error:', pbRes.error.message, '— hint: RLS may be blocking reads. Run the policy SQL in Supabase SQL Editor.');
+      throw pbRes.error;
+    }
 
     _dbState.taskDone = {};
     for (const row of taskRes.data) {
@@ -948,10 +955,11 @@ async function loadDBState() {
     localStorage.setItem(PLAYBOOK_CACHE_KEY, JSON.stringify(_dbState.playbook));
 
     _dbReady = true;
-    console.log(`[DB] Loaded: ${taskRes.data.length} task states · ${pbRes.data.length} playbook states`);
+    console.log(`[DB] ✓ Connected · ${taskRes.data.length} task states · ${pbRes.data.length} playbook states`);
     buildDashboard(Object.values(googleTaskMap)); // re-render with fresh DB state
   } catch(e) {
-    console.error('[DB] loadDBState error:', e);
+    console.error('[DB] loadDBState failed:', e.message || e);
+    console.info('[DB] Falling back to localStorage for this session.');
   }
 }
 
