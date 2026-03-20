@@ -4,7 +4,8 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>FutureSight — Product Lead Dashboard</title>
-<!-- No external Google scripts needed — auth uses plain OAuth 2.0 PKCE redirect + fetch() -->
+<script src="https://accounts.google.com/gsi/client" async onload="onGisLoaded()"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 :root {
   --bg:#0f1117; --surface:#1a1d27; --surface2:#22263a; --border:#2d3148;
@@ -196,6 +197,18 @@ td{padding:10px 12px;vertical-align:top}
   .header,.stats-bar,.controls,.table-wrap,.kanban-wrap,.legend,.results-bar{padding-left:16px;padding-right:16px}
   .stats-bar{flex-direction:column}
 }
+/* ── CHARTS ── */
+.charts-section{padding:0 32px 20px}
+.charts-overview,.charts-venture{display:grid;gap:16px}
+.charts-overview{grid-template-columns:1fr 1fr 2fr}
+.charts-venture{grid-template-columns:repeat(4,1fr)}
+.chart-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 16px 12px}
+.chart-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);margin-bottom:10px}
+.chart-inner{position:relative;height:160px}
+.chart-center-label{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none}
+.chart-center-label .cval{font-size:22px;font-weight:700;color:#fff;display:block;line-height:1}
+.chart-center-label .csub{font-size:10px;color:var(--muted);display:block;margin-top:2px}
+@media(max-width:900px){.charts-overview{grid-template-columns:1fr 1fr}.charts-venture{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
@@ -247,6 +260,42 @@ td{padding:10px 12px;vertical-align:top}
 
 <!-- ═══════════════════════════ STATS ════════════════════════════════════ -->
 <div class="stats-bar" id="statsBar"></div>
+
+<!-- ── CHARTS ── -->
+<div class="charts-section" id="chartsSection">
+  <div class="charts-overview" id="chartsOverview">
+    <div class="chart-card">
+      <div class="chart-title">Task Status</div>
+      <div class="chart-inner"><canvas id="statusChart"></canvas><div class="chart-center-label" id="statusCenter"></div></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">By Priority</div>
+      <div class="chart-inner"><canvas id="priorityChart"></canvas><div class="chart-center-label" id="priorityCenter"></div></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Active Tasks by Project</div>
+      <div class="chart-inner"><canvas id="ventureChart"></canvas></div>
+    </div>
+  </div>
+  <div class="charts-venture hidden" id="chartsVenture">
+    <div class="chart-card">
+      <div class="chart-title">Completion</div>
+      <div class="chart-inner"><canvas id="completionChart"></canvas><div class="chart-center-label" id="completionCenter"></div></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">By Status</div>
+      <div class="chart-inner"><canvas id="ventureStatusChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">By Category</div>
+      <div class="chart-inner"><canvas id="categoryChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">By Priority</div>
+      <div class="chart-inner"><canvas id="venturePriorityChart"></canvas><div class="chart-center-label" id="vpCenter"></div></div>
+    </div>
+  </div>
+</div>
 
 <!-- ── LEGEND ── -->
 <div class="legend">
@@ -530,42 +579,45 @@ const taskTemplates = [
 ];
 
 // ═══════════════════════════════════════════════════════════════════
-// AUTH — OAuth 2.0 implicit flow (no client_secret, no server)
+// AUTH — Google Identity Services (GIS) with silent refresh
 // ═══════════════════════════════════════════════════════════════════
 const SCOPES    = 'https://www.googleapis.com/auth/tasks';
 const TOKEN_KEY = 'fs_gtoken';
 const TOKEN_EXP = 'fs_gtoken_exp';
 let isAuthenticated = false;
+let tokenClient     = null;
+let gisReady        = false;
+let pendingSilentRefresh = false;
 
-function redirectUri() {
-  return window.location.origin + window.location.pathname.replace(/\/+$/, '');
+// Called by the GIS script onload
+window.onGisLoaded = function () {
+  gisReady = true;
+  if (CONFIG.clientId === 'YOUR_GOOGLE_CLIENT_ID') return;
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CONFIG.clientId,
+    scope: SCOPES,
+    callback: onTokenResponse,
+    error_callback: () => showReconnectOrSetup(),
+  });
+  if (pendingSilentRefresh) { pendingSilentRefresh = false; tokenClient.requestAccessToken({ prompt: 'none' }); }
+};
+
+function onTokenResponse(response) {
+  if (response.error) { console.warn('[Auth] token error:', response.error); showReconnectOrSetup(); return; }
+  localStorage.setItem(TOKEN_KEY, response.access_token);
+  localStorage.setItem(TOKEN_EXP, (Date.now() + (response.expires_in || 3600) * 1000).toString());
+  onAuthenticated();
+  syncWithGoogle();
+}
+
+function attemptSilentRefresh() {
+  if (tokenClient) { tokenClient.requestAccessToken({ prompt: 'none' }); }
+  else if (!gisReady) { pendingSilentRefresh = true; setSyncStatus('off', 'Checking session…'); }
+  else { showReconnectOrSetup(); }
 }
 
 function handleAuthClick() {
-  const params = new URLSearchParams({
-    client_id:     CONFIG.clientId,
-    redirect_uri:  redirectUri(),
-    response_type: 'token',
-    scope:         SCOPES,
-    prompt:        'consent',
-  });
-  window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params;
-}
-
-function checkImplicitCallback() {
-  // Token arrives in URL hash: #access_token=...&expires_in=3600&...
-  const hash = window.location.hash.substring(1);
-  if (!hash) return false;
-  const params    = new URLSearchParams(hash);
-  const token     = params.get('access_token');
-  const expiresIn = params.get('expires_in');
-  const error     = params.get('error');
-  window.history.replaceState({}, '', window.location.pathname); // clean URL
-  if (error) { alert('Google auth error: ' + error); return false; }
-  if (!token) return false;
-  localStorage.setItem(TOKEN_KEY, token);
-  localStorage.setItem(TOKEN_EXP, (Date.now() + parseInt(expiresIn || '3600') * 1000).toString());
-  return true;
+  if (tokenClient) { tokenClient.requestAccessToken({ prompt: 'select_account' }); }
 }
 
 function getValidToken() {
@@ -582,23 +634,15 @@ function handleSignOut() {
   isAuthenticated = false;
   setSyncStatus('off', 'Disconnected');
   renderAuthArea(false);
-  document.getElementById('setupBanner').classList.remove('hidden');
-  document.getElementById('connectBtn').textContent = '🔗 Connect Google Tasks';
-  document.getElementById('connectBtn').classList.remove('hidden');
   buildDashboard([]);
 }
 
 function showReconnectOrSetup() {
-  renderAuthArea(false);
-  document.getElementById('connectBtn').classList.remove('hidden');
-  if (Object.keys(googleTaskMap).length > 0) {
-    // Has cached data — quiet reconnect prompt, no banner disruption
-    setSyncStatus('warn', 'Session expired · reconnect to refresh');
-    document.getElementById('connectBtn').textContent = '🔄 Reconnect Google Tasks';
-  } else {
-    // First time — show full setup banner
+  if (CONFIG.clientId === 'YOUR_GOOGLE_CLIENT_ID') {
     document.getElementById('setupBanner').classList.remove('hidden');
-    document.getElementById('connectBtn').textContent = '🔗 Connect Google Tasks';
+  } else {
+    setSyncStatus('warn', 'Session expired · click Connect to refresh');
+    renderAuthArea(false);
   }
 }
 
@@ -874,6 +918,144 @@ async function toggleTaskComplete(taskKey, currentStatus) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// CHARTS  (Chart.js 4)
+// ═══════════════════════════════════════════════════════════════════
+const _charts = {};
+function _destroyChart(id) { if (_charts[id]) { _charts[id].destroy(); delete _charts[id]; } }
+
+const VENTURE_META = [
+  {key:'flowar',       label:'💰 FlowAR',       color:'#3b82f6'},
+  {key:'homeservices', label:'🏠 HomeServices',  color:'#22c55e'},
+  {key:'legal',        label:'⚖️ Legal Agent',   color:'#a855f7'},
+  {key:'dental',       label:'🦷 Sona/Dental',   color:'#f97316'},
+  {key:'voice',        label:'🎙 Voice',         color:'#14b8a6'},
+  {key:'general',      label:'⚙️ General',       color:'#64748b'},
+];
+
+const STATUS_COLORS  = {'To Do':'#475569','In Progress':'#6366f1','Blocked':'#ef4444','Backlog':'#374151','Completed':'#22c55e'};
+const PRIORITY_COLORS = {Critical:'#ef4444',High:'#f97316',Medium:'#eab308',Low:'#6b7280'};
+
+const BASE_OPTS = {
+  responsive:true, maintainAspectRatio:false,
+  plugins:{
+    legend:{labels:{color:'#7b8099',font:{size:11},boxWidth:12,padding:10}},
+    tooltip:{backgroundColor:'#1a1d27',borderColor:'#2d3148',borderWidth:1,titleColor:'#e8eaf0',bodyColor:'#9ca3af'},
+  },
+};
+const NO_LEGEND = { plugins:{ ...BASE_OPTS.plugins, legend:{display:false} } };
+const GRID = { color:'rgba(45,49,72,.7)' };
+
+function updateCharts() {
+  if (activeVenture === 'all') {
+    document.getElementById('chartsOverview').classList.remove('hidden');
+    document.getElementById('chartsVenture').classList.add('hidden');
+    _buildOverviewCharts();
+  } else {
+    document.getElementById('chartsOverview').classList.add('hidden');
+    document.getElementById('chartsVenture').classList.remove('hidden');
+    _buildVentureCharts(activeVenture);
+  }
+}
+
+function _doughnut(id, labels, data, colors, centerEl, centerVal, centerSub) {
+  _destroyChart(id);
+  _charts[id] = new Chart(document.getElementById(id), {
+    type:'doughnut',
+    data:{ labels, datasets:[{ data, backgroundColor:colors, borderWidth:0, hoverOffset:4 }] },
+    options:{ ...BASE_OPTS, cutout:'68%', plugins:{ ...BASE_OPTS.plugins } },
+  });
+  if (centerEl) {
+    const el = document.getElementById(centerEl);
+    if (el) el.innerHTML = `<span class="cval">${centerVal}</span><span class="csub">${centerSub}</span>`;
+  }
+}
+
+function _buildOverviewCharts() {
+  const active = tasks.filter(t => t.status !== 'Completed');
+  const all    = tasks;
+
+  // Status donut
+  const statuses = ['To Do','In Progress','Blocked','Backlog','Completed'];
+  const sCounts  = statuses.map(s => all.filter(t => t.status === s).length);
+  _doughnut('statusChart', statuses, sCounts, statuses.map(s => STATUS_COLORS[s]),
+    'statusCenter', active.length, 'active');
+
+  // Priority donut (active only)
+  const prios   = ['Critical','High','Medium','Low'];
+  const pCounts = prios.map(p => active.filter(t => t.priority === p).length);
+  const critN   = pCounts[0];
+  _doughnut('priorityChart', prios, pCounts, prios.map(p => PRIORITY_COLORS[p]),
+    'priorityCenter', critN, 'critical');
+
+  // Venture bar (active vs done, stacked)
+  _destroyChart('ventureChart');
+  const vLabels  = VENTURE_META.map(v => v.label);
+  const vActive  = VENTURE_META.map(v => tasks.filter(t => t.venture === v.key && t.status !== 'Completed').length);
+  const vDone    = VENTURE_META.map(v => tasks.filter(t => t.venture === v.key && t.status === 'Completed').length);
+  const vColors  = VENTURE_META.map(v => v.color);
+  _charts.ventureChart = new Chart(document.getElementById('ventureChart'), {
+    type:'bar',
+    data:{ labels:vLabels, datasets:[
+      { label:'Active', data:vActive, backgroundColor:vColors.map(c => c+'cc'), borderRadius:4, borderWidth:0 },
+      { label:'Done',   data:vDone,   backgroundColor:vColors.map(c => c+'44'), borderRadius:4, borderWidth:0 },
+    ]},
+    options:{ ...BASE_OPTS, scales:{
+      x:{ stacked:true, ticks:{color:'#7b8099',font:{size:10}}, grid:GRID, border:{color:'transparent'} },
+      y:{ stacked:true, ticks:{color:'#7b8099',font:{size:10}}, grid:GRID, border:{color:'transparent'} },
+    }},
+  });
+}
+
+function _buildVentureCharts(venture) {
+  const vt      = tasks.filter(t => t.venture === venture);
+  const active  = vt.filter(t => t.status !== 'Completed');
+  const done    = vt.filter(t => t.status === 'Completed').length;
+  const vColor  = VENTURE_META.find(v => v.key === venture)?.color || '#6366f1';
+
+  // Completion ring
+  const pct = vt.length ? Math.round(done / vt.length * 100) : 0;
+  _doughnut('completionChart', ['Done','Remaining'], [done, active.length],
+    ['#22c55e', '#2d3148'], 'completionCenter', pct+'%', 'done');
+
+  // Status bar
+  _destroyChart('ventureStatusChart');
+  const statuses = ['To Do','In Progress','Blocked','Backlog'];
+  const sCounts  = statuses.map(s => vt.filter(t => t.status === s).length);
+  _charts.ventureStatusChart = new Chart(document.getElementById('ventureStatusChart'), {
+    type:'bar',
+    data:{ labels:statuses, datasets:[{
+      data:sCounts, backgroundColor:statuses.map(s => STATUS_COLORS[s]+'cc'), borderRadius:4, borderWidth:0
+    }]},
+    options:{ ...BASE_OPTS, ...NO_LEGEND, scales:{
+      x:{ ticks:{color:'#7b8099',font:{size:10}}, grid:GRID, border:{color:'transparent'} },
+      y:{ ticks:{color:'#7b8099',font:{size:10}}, grid:GRID, border:{color:'transparent'} },
+    }},
+  });
+
+  // Category horizontal bar
+  _destroyChart('categoryChart');
+  const cats     = [...new Set(vt.map(t => t.category))].sort();
+  const catCounts= cats.map(c => active.filter(t => t.category === c).length);
+  _charts.categoryChart = new Chart(document.getElementById('categoryChart'), {
+    type:'bar',
+    data:{ labels:cats, datasets:[{
+      data:catCounts, backgroundColor:vColor+'99', borderRadius:4, borderWidth:0
+    }]},
+    options:{ ...BASE_OPTS, ...NO_LEGEND, indexAxis:'y', scales:{
+      x:{ ticks:{color:'#7b8099',font:{size:10}}, grid:GRID, border:{color:'transparent'} },
+      y:{ ticks:{color:'#7b8099',font:{size:10}}, grid:{display:false}, border:{color:'transparent'} },
+    }},
+  });
+
+  // Priority donut
+  const prios   = ['Critical','High','Medium','Low'];
+  const pCounts = prios.map(p => active.filter(t => t.priority === p).length);
+  const critN   = pCounts[0];
+  _doughnut('venturePriorityChart', prios, pCounts, prios.map(p => PRIORITY_COLORS[p]),
+    'vpCenter', critN, 'critical');
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // DATA MERGE  — templates + Google Tasks status
 // ═══════════════════════════════════════════════════════════════════
 let tasks = [];
@@ -1044,6 +1226,7 @@ function applyFilters() {
   document.getElementById('resultCount').textContent = filtered.length - done;
   document.getElementById('criticalCount').textContent =
     (crit>0?`🔴 ${crit} critical`:'') + (done>0?`  ·  ✅ ${done} completed`:'');
+  updateCharts();
 }
 
 function sortBy(col) {
@@ -1161,17 +1344,16 @@ function setView(v) {
 // ═══════════════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', async () => {
+document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('currentDate').textContent =
     new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 
-  // Restore last-synced Google Tasks so the full task list shows immediately on load
   try {
     const cached = localStorage.getItem(GTASK_CACHE_KEY);
     if (cached) googleTaskMap = JSON.parse(cached);
   } catch (e) { googleTaskMap = {}; }
 
-  buildDashboard(Object.values(googleTaskMap)); // render templates + any cached Google Tasks
+  buildDashboard(Object.values(googleTaskMap));
 
   if (CONFIG.clientId === 'YOUR_GOOGLE_CLIENT_ID') {
     setSyncStatus('off', 'Not configured');
@@ -1179,22 +1361,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  // Coming back from Google OAuth redirect? Token lands in URL hash.
-  if (window.location.hash.includes('access_token=') || window.location.hash.includes('error=')) {
-    const ok = checkImplicitCallback();
-    if (ok) { onAuthenticated(); await syncWithGoogle(); }
-    else { showReconnectOrSetup(); }
-    return;
-  }
-
-  // Check for a valid stored token — if valid, auto-sync; if expired, soft reconnect prompt
   const token = getValidToken();
-  if (token) {
-    onAuthenticated();
-    await syncWithGoogle();
-  } else {
-    showReconnectOrSetup();
-  }
+  if (token) { onAuthenticated(); syncWithGoogle(); }
+  else { attemptSilentRefresh(); }
 });
 </script>
 </body>
