@@ -6,6 +6,7 @@
 <title>FutureSight — Product Lead Dashboard</title>
 <script src="https://accounts.google.com/gsi/client" async onload="onGisLoaded()"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="./otter-tasks.js" onerror="console.warn('[FutureSight] otter-tasks.js not found — Otter sync pending')"></script>
 <style>
 :root {
@@ -552,8 +553,10 @@ td{padding:10px 12px;vertical-align:top}
 //             4. Copy the Client ID and paste it below
 // ═══════════════════════════════════════════════════════════════════
 const CONFIG = {
-  clientId: '371728085947-24bpmu41akpf73pqtc4pp3jtg12gsjps.apps.googleusercontent.com',
+  clientId:     '371728085947-24bpmu41akpf73pqtc4pp3jtg12gsjps.apps.googleusercontent.com',
   geminiApiKey: 'AIzaSyBWTtFpBN2D8OD8Tb7HH8RGw5a7AMQy83c',
+  supabaseUrl:  'https://gnpwlomohmzmokdsuokc.supabase.co',
+  supabaseKey:  'sb_publishable_DgzetYVlgK_fQRWeLgHOPA_CuNIaJB2',
 
   // Current stage per venture: 1=Ideation 2=Problem 3=Solution 4=Formation 5=Growth
   ventureStages: {
@@ -903,13 +906,73 @@ async function runSemanticAnalysis() {
 
 // ── LOCAL COMPLETION STATE (for template tasks not in Google Tasks)
 const LOCAL_DONE_KEY = 'fs_local_done';
+
+// ═══════════════════════════════════════════════════════════════════
+// SUPABASE DB LAYER  — persists task done state + playbook statuses
+// Falls back to localStorage transparently if DB is unavailable
+// ═══════════════════════════════════════════════════════════════════
+let _dbClient = null;
+let _dbReady  = false;
+let _dbState  = { taskDone: {}, playbook: {} };
+
+function initDB() {
+  if (!CONFIG.supabaseUrl || !CONFIG.supabaseKey) return;
+  if (!window.supabase) { console.warn('[DB] Supabase JS not loaded'); return; }
+  try {
+    _dbClient = window.supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseKey);
+    console.log('[DB] Supabase client ready');
+  } catch(e) { console.error('[DB] init error:', e); }
+}
+
+async function loadDBState() {
+  if (!_dbClient) return;
+  try {
+    const [taskRes, pbRes] = await Promise.all([
+      _dbClient.from('task_states').select('*'),
+      _dbClient.from('playbook_states').select('*'),
+    ]);
+    if (taskRes.error) throw taskRes.error;
+    if (pbRes.error)   throw pbRes.error;
+
+    _dbState.taskDone = {};
+    for (const row of taskRes.data) {
+      if (row.done) _dbState.taskDone[row.task_key] = true;
+    }
+    localStorage.setItem(LOCAL_DONE_KEY, JSON.stringify(_dbState.taskDone));
+
+    _dbState.playbook = {};
+    for (const row of pbRes.data) {
+      if (!_dbState.playbook[row.venture]) _dbState.playbook[row.venture] = {};
+      _dbState.playbook[row.venture][row.artifact] = row.status;
+    }
+    localStorage.setItem(PLAYBOOK_CACHE_KEY, JSON.stringify(_dbState.playbook));
+
+    _dbReady = true;
+    console.log(`[DB] Loaded: ${taskRes.data.length} task states · ${pbRes.data.length} playbook states`);
+    buildDashboard(Object.values(googleTaskMap)); // re-render with fresh DB state
+  } catch(e) {
+    console.error('[DB] loadDBState error:', e);
+  }
+}
+
 function getLocalDone() {
+  if (_dbReady) return _dbState.taskDone;
   try { return JSON.parse(localStorage.getItem(LOCAL_DONE_KEY) || '{}'); } catch { return {}; }
 }
-function setLocalDone(key, done) {
-  const d = getLocalDone();
-  if (done) d[key] = true; else delete d[key];
-  localStorage.setItem(LOCAL_DONE_KEY, JSON.stringify(d));
+
+function setLocalDone(key, done, venture = '') {
+  // 1. Update in-memory cache
+  if (done) _dbState.taskDone[key] = true;
+  else delete _dbState.taskDone[key];
+  // 2. Keep localStorage in sync as offline fallback
+  localStorage.setItem(LOCAL_DONE_KEY, JSON.stringify(_dbState.taskDone));
+  // 3. Persist to Supabase (fire-and-forget)
+  if (_dbClient) {
+    _dbClient.from('task_states').upsert(
+      { task_key: key, venture, done, done_at: done ? new Date().toISOString() : null, updated_at: new Date().toISOString() },
+      { onConflict: 'task_key' }
+    ).then(({ error }) => { if (error) console.error('[DB] task upsert:', error); });
+  }
 }
 
 // ── FLEXIBLE LIST NAME MATCHING (case-insensitive, trimmed)
@@ -1048,8 +1111,11 @@ async function toggleTaskComplete(taskKey, currentStatus) {
     }
   }
 
-  // For non-Google tasks, save locally so they survive reloads
-  if (!googleTaskMap[taskKey]) setLocalDone(taskKey, newDone);
+  // For non-Google tasks, persist done state (Supabase + localStorage fallback)
+  if (!googleTaskMap[taskKey]) {
+    const taskObj = tasks.find(t => (t.googleKey || normalizeTitle(t.name)) === taskKey);
+    setLocalDone(taskKey, newDone, taskObj?.venture || '');
+  }
   buildDashboard(Object.values(googleTaskMap));
 }
 
@@ -1084,13 +1150,23 @@ const PLAYBOOK_DATA = [
 ];
 
 function getPlaybookData() {
+  if (_dbReady) return _dbState.playbook;
   try { return JSON.parse(localStorage.getItem(PLAYBOOK_CACHE_KEY) || '{}'); } catch { return {}; }
 }
+
 function savePlaybookStatus(venture, artifactName, status) {
-  const d = getPlaybookData();
-  if (!d[venture]) d[venture] = {};
-  d[venture][artifactName] = status;
-  localStorage.setItem(PLAYBOOK_CACHE_KEY, JSON.stringify(d));
+  // 1. Update in-memory cache
+  if (!_dbState.playbook[venture]) _dbState.playbook[venture] = {};
+  _dbState.playbook[venture][artifactName] = status;
+  // 2. Keep localStorage in sync as offline fallback
+  localStorage.setItem(PLAYBOOK_CACHE_KEY, JSON.stringify(_dbState.playbook));
+  // 3. Persist to Supabase (fire-and-forget)
+  if (_dbClient) {
+    _dbClient.from('playbook_states').upsert(
+      { venture, artifact: artifactName, status, updated_at: new Date().toISOString() },
+      { onConflict: 'venture,artifact' }
+    ).then(({ error }) => { if (error) console.error('[DB] playbook upsert:', error); });
+  }
 }
 function cyclePlaybookStatus(venture, artifactName) {
   const d    = getPlaybookData();
@@ -1699,7 +1775,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (cached) googleTaskMap = JSON.parse(cached);
   } catch (e) { googleTaskMap = {}; }
 
-  buildDashboard(Object.values(googleTaskMap));
+  initDB();           // set up Supabase client
+  loadDBState();      // async: fetches task+playbook state, re-renders when ready
+
+  buildDashboard(Object.values(googleTaskMap)); // immediate render from cache
 
   // Hide venture cards initially if a venture is active (shouldn't be on fresh load)
   if (activeVenture !== 'all') {
