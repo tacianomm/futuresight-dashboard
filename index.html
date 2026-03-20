@@ -66,13 +66,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .user-chip span{font-size:11px;color:var(--muted);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ── STATS BAR ── */
-.stats-bar{display:flex;gap:12px;padding:16px 32px;flex-wrap:wrap}
-.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 20px;min-width:140px;flex:1}
+.stats-bar{display:flex;gap:12px;padding:16px 32px 12px;flex-wrap:wrap}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;min-width:150px;flex:1;transition:border-color .15s}
+.stat-card.clickable{cursor:pointer}
+.stat-card.clickable:hover{border-color:#555;background:#1e1e2e}
 .stat-card .label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
 .stat-card .value{font-size:26px;font-weight:700;color:#fff}
-.stat-card .sub{color:var(--muted);font-size:11px;margin-top:2px}
-.stat-card.critical .value{color:var(--critical)}
-.stat-card.now .value{color:var(--now)}
+.stat-card .sub{color:var(--muted);font-size:11px;margin-top:3px}
+.stat-card.today .value{color:#60a5fa}
+.stat-card.week .value{color:#a78bfa}
 .stat-card.venture{border-left:3px solid}
 .stat-card.venture.flowar{border-left-color:var(--flowar)}
 .stat-card.venture.homeservices{border-left-color:var(--homeservices)}
@@ -80,6 +82,34 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .stat-card.venture.dental{border-left-color:var(--dental)}
 .stat-card.venture.voice{border-left-color:var(--voice)}
 .stat-card.venture.general{border-left-color:var(--general)}
+/* capacity bar */
+.capacity-bar{height:4px;background:#2a2a3a;border-radius:2px;margin-top:8px;overflow:hidden}
+.capacity-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,#22d3ee,#60a5fa);transition:width .4s}
+.capacity-fill.over{background:linear-gradient(90deg,#f97316,#ef4444)}
+/* venture pulse dots */
+.vdot-row{display:flex;gap:6px;margin-top:7px;align-items:center;flex-wrap:wrap}
+.vdot{display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--muted)}
+.vdot-circle{width:9px;height:9px;border-radius:50%}
+.vdot-circle.red{background:#ef4444}
+.vdot-circle.yellow{background:#eab308}
+.vdot-circle.green{background:#22c55e}
+
+/* ── FOCUS PANELS ── */
+.focus-panels{padding:0 32px 8px;display:flex;flex-direction:column;gap:8px}
+.focus-panel{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.focus-panel-hdr{display:flex;align-items:center;gap:10px;padding:10px 16px;cursor:pointer;user-select:none}
+.focus-panel-hdr:hover{background:rgba(255,255,255,.03)}
+.focus-panel-icon{font-size:15px;line-height:1}
+.focus-panel-title{font-size:13px;font-weight:600;color:#e0e0e0}
+.focus-panel-meta{font-size:12px;color:var(--muted)}
+.focus-panel-chevron{margin-left:auto;color:var(--muted);font-size:10px;transition:transform .2s;display:inline-block}
+.focus-panel-chevron.open{transform:rotate(180deg)}
+.focus-panel-body{border-top:1px solid var(--border)}
+.focus-task{display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid rgba(255,255,255,.04)}
+.focus-task:last-child{border-bottom:none}
+.focus-task:hover{background:rgba(255,255,255,.025)}
+.focus-task-name{flex:1;font-size:13px;color:#ddd;line-height:1.3}
+.focus-task-effort{font-size:11px;color:var(--muted);white-space:nowrap;letter-spacing:1px}
 
 /* ── CONTROLS ── */
 .controls{padding:0 32px 16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
@@ -352,6 +382,9 @@ td{padding:10px 12px;vertical-align:top}
 
 <!-- ═══════════════════════════ STATS ════════════════════════════════════ -->
 <div class="stats-bar" id="statsBar"></div>
+
+<!-- ── FOCUS PANELS (Today / This Week) ── -->
+<div class="focus-panels" id="focusPanels"></div>
 
 <!-- ── VENTURE TABS NAVIGATION ── -->
 <div class="venture-tabs-nav" id="ventureTabsNav">
@@ -1251,6 +1284,20 @@ function switchVenture(btn) {
   activeVenture = btn.dataset.venture;
   const isAll = activeVenture === 'all';
   document.getElementById('ventureOverviewCards').style.display = isAll ? '' : 'none';
+
+  // Rebuild focus panels for this venture (or global if "All")
+  if (isAll) {
+    buildFocusPanels(_todayTasks, _weekTasks);
+  } else {
+    const vLabel = btn.querySelector('.vtab-label')?.textContent?.replace(/^[^ ]+ /,'') || activeVenture;
+    const HRS = 1.5;
+    const vActive = tasks.filter(t => t.venture === activeVenture && t.status !== 'Completed' && !t.stale);
+    const vToday = pickTopTasks(vActive.filter(t => t.urgency === 'Now'), 5);
+    const vTodaySet = new Set(vToday.map(t => t.name));
+    const vWeek  = pickTopTasks(vActive.filter(t => (t.urgency==='Now'||t.urgency==='Soon') && !vTodaySet.has(t.name)), 15);
+    buildFocusPanels(vToday, vWeek, vLabel);
+  }
+
   applyFilters();
 }
 
@@ -1633,19 +1680,102 @@ function setSyncStatus(state, msg) {
 // ═══════════════════════════════════════════════════════════════════
 // STATS
 // ═══════════════════════════════════════════════════════════════════
+// ─── Task scoring ────────────────────────────────────────────────────────────
+function scoreTask(t) {
+  const p = { Critical:40, High:30, Medium:20, Low:10 }[t.priority] || 10;
+  const u = { Now:20, Soon:10, Later:0 }[t.urgency] || 0;
+  const e = !t.effort || t.effort <= 1 ? 10 : t.effort <= 2 ? 5 : 0;   // quick-win bonus
+  const s = t.stale ? -25 : 0;
+  return p + u + e + s;
+}
+
+// Pick top N tasks; optionally cap per-venture representation
+function pickTopTasks(pool, count, maxPerVenture = 99) {
+  const sorted = [...pool].sort((a, b) => scoreTask(b) - scoreTask(a));
+  const result = [], vc = {};
+  for (const t of sorted) {
+    if (result.length >= count) break;
+    if ((vc[t.venture] || 0) >= maxPerVenture) continue;
+    result.push(t);
+    vc[t.venture] = (vc[t.venture] || 0) + 1;
+  }
+  return result;
+}
+
+// Module-level cache so focus panels can re-render without full rebuild
+let _todayTasks = [], _weekTasks = [], _focusPanelOpen = { today: true, week: false };
+
 function buildStats() {
-  const active   = tasks.filter(t => t.status !== 'Completed');
-  const critical = active.filter(t => t.priority === 'Critical').length;
-  const nowCount = active.filter(t => t.urgency === 'Now').length;
+  const VENTURES      = ['flowar','homeservices','legal','dental','voice'];
+  const VENTURE_NAMES = { flowar:'FlowAR', homeservices:'HomeServices', legal:'Legal', dental:'Dental', voice:'Voice' };
+  const WEEKLY_CAP    = 15;                      // hrs / week (user's midpoint)
+  const HRS_PER_PT    = 1.5;                     // effort-point → hrs estimate
 
-  // Simplified 3-card stats bar
+  const active  = tasks.filter(t => t.status !== 'Completed');
+  const stale   = active.filter(t => t.stale);
+  const working = active.filter(t => !t.stale);
+
+  // ── Pick focus tasks (venture-balanced) ──────────────────────────────
+  const todayPool  = working.filter(t => t.urgency === 'Now' && (t.priority === 'Critical' || t.priority === 'High'));
+  let today5 = pickTopTasks(todayPool, 5, 2);
+  if (today5.length < 5) {
+    const filler = working.filter(t => t.urgency === 'Now' && !today5.includes(t));
+    today5 = [...today5, ...pickTopTasks(filler, 5 - today5.length, 1)];
+  }
+
+  const todaySet  = new Set(today5.map(t => t.name));
+  const weekPool  = working.filter(t => (t.urgency === 'Now' || t.urgency === 'Soon') && !todaySet.has(t.name));
+  const week20    = pickTopTasks(weekPool, 20, 5);
+  _todayTasks = today5;
+  _weekTasks  = week20;
+
+  // ── Capacity math ────────────────────────────────────────────────────
+  const allWeek     = [...today5, ...week20];
+  const weekHrs     = allWeek.reduce((s, t) => s + (t.effort || 2) * HRS_PER_PT, 0);
+  const todayHrs    = today5.reduce((s, t) => s + (t.effort || 2) * HRS_PER_PT, 0);
+  const capPct      = Math.min(100, Math.round(weekHrs / WEEKLY_CAP * 100));
+  const isOver      = weekHrs > WEEKLY_CAP;
+
+  // ── Venture health dots ──────────────────────────────────────────────
+  const health = VENTURES.map(v => {
+    const vt = working.filter(t => t.venture === v);
+    const color = vt.some(t => t.priority === 'Critical' && t.urgency === 'Now') ? 'red'
+                : vt.some(t => t.priority === 'High'     && t.urgency === 'Now') ? 'yellow'
+                : 'green';
+    return { v, name: VENTURE_NAMES[v], color };
+  });
+  const redCount = health.filter(h => h.color === 'red').length;
+
+  // ── Stat cards ───────────────────────────────────────────────────────
   document.getElementById('statsBar').innerHTML = `
-    <div class="stat-card critical"><div class="label">🔴 Critical</div><div class="value">${critical}</div><div class="sub">Need immediate action</div></div>
-    <div class="stat-card now"><div class="label">⚡ Do This Week</div><div class="value">${nowCount}</div><div class="sub">Urgency: Now</div></div>
-    <div class="stat-card"><div class="label">📋 Active Tasks</div><div class="value">${active.length}</div><div class="sub">Across all ventures</div></div>`;
+    <div class="stat-card today clickable" onclick="toggleFocusPanel('today')" title="Click to expand Today's Focus">
+      <div class="label">🎯 Today's Focus</div>
+      <div class="value">${today5.length}</div>
+      <div class="sub">~${Math.round(todayHrs)} hrs · click to expand</div>
+    </div>
+    <div class="stat-card week clickable" onclick="toggleFocusPanel('week')" title="Click to expand This Week">
+      <div class="label">📅 This Week</div>
+      <div class="value">${allWeek.length}</div>
+      <div class="sub">${Math.round(weekHrs)} hrs queued · ${WEEKLY_CAP} hr capacity</div>
+      <div class="capacity-bar"><div class="capacity-fill${isOver?' over':''}" style="width:${capPct}%"></div></div>
+    </div>
+    <div class="stat-card" title="Health per venture">
+      <div class="label">🏢 Venture Pulse</div>
+      <div class="vdot-row">
+        ${health.map(h => `<span class="vdot" title="${h.name}"><span class="vdot-circle ${h.color}"></span>${h.name.split('/')[0]}</span>`).join('')}
+      </div>
+      <div class="sub" style="margin-top:6px">${redCount > 0 ? `${redCount} venture${redCount>1?'s':''} need immediate action` : 'All ventures on track'}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">✅ Completed</div>
+      <div class="value">${tasks.filter(t => t.status==='Completed').length}</div>
+      <div class="sub">${stale.length} backlog · ${working.filter(t=>t.isNew).length} new tasks</div>
+    </div>`;
 
-  // Update tab counts
-  const VENTURES = ['flowar','homeservices','legal','dental','voice'];
+  // ── Focus panels ─────────────────────────────────────────────────────
+  buildFocusPanels(today5, week20);
+
+  // ── Tab counts ───────────────────────────────────────────────────────
   const allEl = document.getElementById('vtab-count-all');
   if (allEl) allEl.textContent = active.length;
   VENTURES.forEach(v => {
@@ -1653,8 +1783,63 @@ function buildStats() {
     if (el) el.textContent = tasks.filter(t => t.venture === v && t.status !== 'Completed').length;
   });
 
-  // Build venture overview cards (only refresh when showing all)
   buildVentureCards();
+}
+
+// ─── Focus panels ─────────────────────────────────────────────────────────────
+function buildFocusPanels(todayList, weekList, ventureFilter) {
+  const panel = document.getElementById('focusPanels');
+  if (!panel) return;
+
+  const HRS = 1.5;
+  const todayOpen = _focusPanelOpen.today;
+  const weekOpen  = _focusPanelOpen.week;
+  const allWeek   = [...todayList, ...weekList];
+  const todayHrs  = Math.round(todayList.reduce((s, t) => s + (t.effort || 2) * HRS, 0));
+  const weekHrs   = Math.round(allWeek.reduce((s, t) => s + (t.effort || 2) * HRS, 0));
+
+  const labelToday = ventureFilter ? `Top ${todayList.length} for ${ventureFilter}` : `Today's Focus`;
+  const labelWeek  = ventureFilter ? `This Week · ${ventureFilter}` : `This Week's Top 20`;
+
+  const renderFocusTask = t => {
+    const key = (t.googleKey || normalizeTitle(t.name)).replace(/'/g, "\\'");
+    const pIcon = t.priority === 'Critical' ? '🔴 ' : t.priority === 'High' ? '🟠 ' : '';
+    const effortDots = '●'.repeat(Math.min(t.effort||2,5)) + '○'.repeat(Math.max(0,5-(t.effort||2)));
+    const hrs = ((t.effort||2)*HRS).toFixed(0);
+    return `<div class="focus-task">
+      <input type="checkbox" class="task-check" ${t.status==='Completed'?'checked':''}
+        onchange="onCheckboxChange('${key}','${t.status}')">
+      <span class="vbadge ${t.venture}" style="font-size:9px;padding:2px 6px;flex-shrink:0">${t.ventureLabel}</span>
+      <span class="focus-task-name">${pIcon}${t.name}</span>
+      <span class="focus-task-effort" title="${hrs} hrs">${effortDots}</span>
+    </div>`;
+  };
+
+  panel.innerHTML = `
+    <div class="focus-panel">
+      <div class="focus-panel-hdr" onclick="toggleFocusPanel('today')">
+        <span class="focus-panel-icon">🎯</span>
+        <span class="focus-panel-title">${labelToday}</span>
+        <span class="focus-panel-meta">&nbsp;${todayList.length} tasks · ~${todayHrs} hrs</span>
+        <span class="focus-panel-chevron ${todayOpen?'open':''}">▼</span>
+      </div>
+      ${todayOpen && todayList.length ? `<div class="focus-panel-body">${todayList.map(renderFocusTask).join('')}</div>` : ''}
+    </div>
+    <div class="focus-panel">
+      <div class="focus-panel-hdr" onclick="toggleFocusPanel('week')">
+        <span class="focus-panel-icon">📅</span>
+        <span class="focus-panel-title">${labelWeek}</span>
+        <span class="focus-panel-meta">&nbsp;${allWeek.length} tasks · ~${weekHrs} hrs</span>
+        <span class="focus-panel-chevron ${weekOpen?'open':''}">▼</span>
+      </div>
+      ${weekOpen && allWeek.length ? `<div class="focus-panel-body">${allWeek.map(renderFocusTask).join('')}</div>` : ''}
+    </div>`;
+}
+
+function toggleFocusPanel(which) {
+  _focusPanelOpen[which] = !_focusPanelOpen[which];
+  buildFocusPanels(_todayTasks, _weekTasks,
+    activeVenture !== 'all' ? (document.querySelector('.vtab.active .vtab-label')?.textContent?.replace(/^[^ ]+ /,'')) : null);
 }
 
 // ═══════════════════════════════════════════════════════════════════
