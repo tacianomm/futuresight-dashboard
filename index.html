@@ -913,7 +913,7 @@ const LOCAL_DONE_KEY = 'fs_local_done';
 // ═══════════════════════════════════════════════════════════════════
 let _dbClient = null;
 let _dbReady  = false;
-let _dbState  = { taskDone: {}, playbook: {} };
+let _dbState  = { taskDone: {}, playbook: {}, tasks: null };
 
 function initDB() {
   if (!CONFIG.supabaseUrl || !CONFIG.supabaseKey) return;
@@ -928,25 +928,32 @@ async function loadDBState() {
   if (!_dbClient) { console.warn('[DB] No client — skipping load'); return; }
   console.log('[DB] Fetching state from Supabase…');
   try {
-    const [taskRes, pbRes] = await Promise.all([
+    const [taskRes, pbRes, tasksRes] = await Promise.all([
       _dbClient.from('task_states').select('*'),
       _dbClient.from('playbook_states').select('*'),
+      _dbClient.from('tasks').select('*'),
     ]);
     if (taskRes.error) {
       console.error('[DB] task_states error:', taskRes.error.message, '— hint: RLS may be blocking reads. Run the policy SQL in Supabase SQL Editor.');
       throw taskRes.error;
     }
     if (pbRes.error) {
-      console.error('[DB] playbook_states error:', pbRes.error.message, '— hint: RLS may be blocking reads. Run the policy SQL in Supabase SQL Editor.');
+      console.error('[DB] playbook_states error:', pbRes.error.message, '— hint: RLS may be blocking reads.');
       throw pbRes.error;
     }
+    if (tasksRes.error) {
+      console.error('[DB] tasks error:', tasksRes.error.message);
+      throw tasksRes.error;
+    }
 
+    // ── task_states ──────────────────────────────────────────────
     _dbState.taskDone = {};
     for (const row of taskRes.data) {
       if (row.done) _dbState.taskDone[row.task_key] = true;
     }
     localStorage.setItem(LOCAL_DONE_KEY, JSON.stringify(_dbState.taskDone));
 
+    // ── playbook_states ──────────────────────────────────────────
     _dbState.playbook = {};
     for (const row of pbRes.data) {
       if (!_dbState.playbook[row.venture]) _dbState.playbook[row.venture] = {};
@@ -954,12 +961,52 @@ async function loadDBState() {
     }
     localStorage.setItem(PLAYBOOK_CACHE_KEY, JSON.stringify(_dbState.playbook));
 
+    // ── tasks (convert DB row → template shape) ──────────────────
+    if (tasksRes.data.length > 0) {
+      _dbState.tasks = tasksRes.data.map(row => ({
+        venture:       row.venture,
+        ventureLabel:  row.venture_label,
+        name:          row.name,
+        desc:          row.description,
+        category:      row.category,
+        priority:      row.priority,
+        urgency:       row.urgency,
+        effort:        row.effort,
+        source:        row.source,
+        assignee:      row.assignee,
+        meetingDate:   row.meeting_date,
+        meetingTitle:  row.meeting_title,
+        otterLink:     row.otter_link,
+        stale:         row.stale,
+        isNew:         row.is_new,
+        defaultStatus: row.default_status,
+        _dbId:         row.id,
+        _updatedAt:    row.updated_at,
+      }));
+
+      // Update Otter badge from DB
+      const otterTasks = _dbState.tasks.filter(t => t.source === 'otter');
+      const badge = document.getElementById('otterBadge');
+      const label = document.getElementById('otterSyncLabel');
+      if (badge && label && otterTasks.length > 0) {
+        const newestDate = otterTasks
+          .filter(t => t.meetingDate)
+          .map(t => new Date(t.meetingDate))
+          .sort((a,b) => b-a)[0];
+        const dateStr = newestDate
+          ? newestDate.toLocaleDateString('en-US', { month:'short', day:'numeric' })
+          : '—';
+        label.textContent = `${otterTasks.length} tasks · ${dateStr}`;
+        badge.classList.add('loaded');
+      }
+    }
+
     _dbReady = true;
-    console.log(`[DB] ✓ Connected · ${taskRes.data.length} task states · ${pbRes.data.length} playbook states`);
+    console.log(`[DB] ✓ Connected · ${tasksRes.data.length} tasks · ${taskRes.data.length} task states · ${pbRes.data.length} playbook states`);
     buildDashboard(Object.values(googleTaskMap)); // re-render with fresh DB state
   } catch(e) {
     console.error('[DB] loadDBState failed:', e.message || e);
-    console.info('[DB] Falling back to localStorage for this session.');
+    console.info('[DB] Falling back to static taskTemplates + localStorage for this session.');
   }
 }
 
@@ -1018,7 +1065,8 @@ async function syncWithGoogle() {
 
     // Fast lookup: normalized template title → template object (for matching tasks in unknown lists)
     const templateKeyMap = {};
-    for (const t of taskTemplates) templateKeyMap[normalizeTitle(t.name)] = t;
+    const _tmSource = (_dbState.tasks && _dbState.tasks.length > 0) ? _dbState.tasks : taskTemplates;
+    for (const t of _tmSource) templateKeyMap[normalizeTitle(t.name)] = t;
 
     const matchedLists = new Set();
     for (const list of allLists) {
@@ -1055,7 +1103,7 @@ async function syncWithGoogle() {
       listsFound:  allLists.filter(l =>  findVentureForList(l.title)).map(l => l.title),
       listsSkipped: allLists.filter(l => !findVentureForList(l.title)).map(l => l.title),
       matched:     Object.values(googleTaskMap).map(t => ({ title: t.title, list: t.listTitle, status: t.status })),
-      unmatched:   taskTemplates.map(t => t.name).filter(n => !matchedKeys.has(normalizeTitle(n))),
+      unmatched:   ((_dbState.tasks && _dbState.tasks.length > 0) ? _dbState.tasks : taskTemplates).map(t => t.name).filter(n => !matchedKeys.has(normalizeTitle(n))),
     };
     document.getElementById('syncReportBtn').style.display = '';
 
@@ -1464,8 +1512,11 @@ function buildDashboard(googleItems) {
   const usedKeys = new Set();
   const localDone = getLocalDone();
 
-  // 1. Start from templates — overlay Google status + local done state
-  for (const t of taskTemplates) {
+  // 1. Start from tasks — prefer DB, fall back to static taskTemplates
+  // After migration, _dbState.tasks holds all tasks (templates + Otter) from Supabase.
+  const sourceTemplates = (_dbState.tasks && _dbState.tasks.length > 0) ? _dbState.tasks : taskTemplates;
+
+  for (const t of sourceTemplates) {
     const key = normalizeTitle(t.name);
 
     // a) Exact title match
@@ -1528,36 +1579,35 @@ function buildDashboard(googleItems) {
     });
   }
 
-  // 3. Merge Otter tasks (from otter-tasks.js companion file)
-  const otterData = (typeof window !== 'undefined' && window.OTTER_TASKS) ? window.OTTER_TASKS : null;
-  if (otterData && Array.isArray(otterData.tasks)) {
-    const existingNames = new Set(merged.map(t => normalizeTitle(t.name)));
-    let addedCount = 0;
-    for (const ot of otterData.tasks) {
-      const key = normalizeTitle(ot.name);
-      if (usedKeys.has(key)) continue;
-      // Fuzzy dedup: skip if very similar to an existing task
-      let isDup = false;
-      for (const existing of merged) {
-        if (existing.venture === ot.venture && titleSimilarity(existing.name, ot.name) >= 0.6) {
-          isDup = true; break;
+  // 3. (Otter tasks are now included in sourceTemplates via the 'tasks' Supabase table.
+  //     otter-tasks.js is no longer needed — tasks with source:'otter' come from DB.)
+  //     If we're in offline/fallback mode and window.OTTER_TASKS exists, still merge it.
+  if (!_dbReady) {
+    const otterData = (typeof window !== 'undefined' && window.OTTER_TASKS) ? window.OTTER_TASKS : null;
+    if (otterData && Array.isArray(otterData.tasks)) {
+      let addedCount = 0;
+      for (const ot of otterData.tasks) {
+        const key = normalizeTitle(ot.name);
+        if (usedKeys.has(key)) continue;
+        let isDup = false;
+        for (const existing of merged) {
+          if (existing.venture === ot.venture && titleSimilarity(existing.name, ot.name) >= 0.6) {
+            isDup = true; break;
+          }
         }
+        if (isDup) continue;
+        const status = getLocalDone()[key] ? 'Completed' : (ot.stale ? 'Backlog' : 'To Do');
+        merged.push({ ...ot, status, fromOtter: true, fromGoogle: false, googleKey: null });
+        usedKeys.add(key);
+        addedCount++;
       }
-      if (isDup) continue;
-      const localDoneKey = key;
-      const status = getLocalDone()[localDoneKey] ? 'Completed' : (ot.stale ? 'Backlog' : 'To Do');
-      merged.push({ ...ot, status, fromOtter: true, fromGoogle: false, googleKey: null });
-      usedKeys.add(key);
-      addedCount++;
-    }
-    // Update Otter badge
-    const badge = document.getElementById('otterBadge');
-    const label = document.getElementById('otterSyncLabel');
-    if (badge && label) {
-      const d = new Date(otterData.lastSync);
-      const dateStr = d.toLocaleDateString('en-US', { month:'short', day:'numeric' });
-      label.textContent = `${addedCount} tasks · ${dateStr}`;
-      badge.classList.add('loaded');
+      const badge = document.getElementById('otterBadge');
+      const label = document.getElementById('otterSyncLabel');
+      if (badge && label) {
+        const d = new Date(otterData.lastSync);
+        label.textContent = `${addedCount} tasks · ${d.toLocaleDateString('en-US',{month:'short',day:'numeric'})} (offline)`;
+        badge.classList.add('loaded');
+      }
     }
   }
 
