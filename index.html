@@ -1745,7 +1745,8 @@ function renderTable(filtered) {
   const isDone = t => t.status==='Completed';
   tbody.innerHTML = filtered.map(t => {
     const checked = isDone(t);
-    const gKey = t.googleKey ? JSON.stringify(t.googleKey) : 'null';
+    // Use single-quoted string so the key doesn't break the double-quoted HTML attribute
+    const gKey = t.googleKey ? `'${t.googleKey.replace(/'/g, "\\'")}'` : 'null';
     const syncTip = t.fromGoogle && isAuthenticated
       ? ''
       : t.fromGoogle
