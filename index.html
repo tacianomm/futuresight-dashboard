@@ -6,6 +6,7 @@
 <title>FutureSight — Product Lead Dashboard</title>
 <script src="https://accounts.google.com/gsi/client" async onload="onGisLoaded()"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="./otter-tasks.js" onerror="console.warn('[FutureSight] otter-tasks.js not found — Otter sync pending')"></script>
 <style>
 :root {
   --bg:#0f1117; --surface:#1a1d27; --surface2:#22263a; --border:#2d3148;
@@ -52,12 +53,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .sync-dot.off{background:#475569}
 .signout-btn{background:transparent;border:1px solid var(--border);border-radius:6px;padding:4px 10px;color:var(--muted);font-size:11px;cursor:pointer;transition:all .15s}
 .signout-btn:hover{border-color:#ef4444;color:#ef4444}
+.otter-sync-badge{display:flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:11px;color:var(--muted);white-space:nowrap}
+.otter-sync-badge .otter-dot{width:6px;height:6px;border-radius:50%;background:#475569;flex-shrink:0}
+.otter-sync-badge.loaded .otter-dot{background:#22c55e}
+.otter-sync-badge span.otter-label{color:var(--text);font-weight:500}
+.task-source-badge{display:inline-flex;align-items:center;gap:3px;font-size:10px;padding:1px 5px;border-radius:3px;font-weight:600;letter-spacing:.3px;text-transform:uppercase}
+.task-source-badge.otter{background:rgba(99,102,241,.15);color:#818cf8;border:1px solid rgba(99,102,241,.25)}
+.task-source-badge.claude{background:rgba(99,102,241,.08);color:var(--muted);border:1px solid var(--border)}
 .user-chip{display:flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:3px 10px 3px 4px}
 .user-chip img{width:22px;height:22px;border-radius:50%}
 .user-chip span{font-size:11px;color:var(--muted);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ── STATS BAR ── */
-.stats-bar{display:flex;gap:12px;padding:20px 32px;overflow-x:auto;flex-wrap:wrap}
+.stats-bar{display:flex;gap:12px;padding:16px 32px;flex-wrap:wrap}
 .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 20px;min-width:140px;flex:1}
 .stat-card .label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
 .stat-card .value{font-size:26px;font-weight:700;color:#fff}
@@ -197,6 +205,84 @@ td{padding:10px 12px;vertical-align:top}
   .header,.stats-bar,.controls,.table-wrap,.kanban-wrap,.legend,.results-bar{padding-left:16px;padding-right:16px}
   .stats-bar{flex-direction:column}
 }
+/* ── STAGE PANEL ── */
+.stage-panel{padding:0 32px 8px}
+.stage-progress-wrap{display:flex;align-items:center;gap:0;margin-bottom:16px;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.stage-step{flex:1;padding:10px 8px;text-align:center;font-size:11px;font-weight:600;color:var(--muted);position:relative;cursor:default;transition:all .2s}
+.stage-step.active{color:#fff;background:var(--surface2)}
+.stage-step.past{color:var(--muted);opacity:.7}
+.stage-step.active::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px}
+.stage-step-num{font-size:14px;display:block;margin-bottom:2px}
+.stage-step-label{font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.stage-content-grid{display:grid;grid-template-columns:1fr 380px;gap:16px;margin-bottom:16px}
+.playbook-col,.toptasks-col{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+.panel-col-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);margin-bottom:12px}
+
+.playbook-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px}
+.pb-row{display:flex;align-items:center;justify-content:space-between;padding:5px 8px;border-radius:6px;background:var(--surface2);gap:8px}
+.pb-row.na-row{opacity:.35}
+.pb-name{font-size:12px;color:var(--text);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pb-badge{font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 6px;white-space:nowrap;cursor:pointer;user-select:none;transition:all .15s;flex-shrink:0}
+.pb-badge:hover{border-color:var(--accent);color:var(--text)}
+.pb-badge.status-finalized{border-color:#22c55e44;background:rgba(34,197,94,.1);color:#86efac}
+.pb-badge.status-started{border-color:#3b82f644;background:rgba(59,130,246,.1);color:#93c5fd}
+.pb-badge.status-updated{border-color:#6366f144;background:rgba(99,102,241,.1);color:#a5b4fc}
+.pb-badge.status-referenced{border-color:#f59e0b44;background:rgba(245,158,11,.1);color:#fcd34d}
+.playbook-legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
+.playbook-legend span{font-size:10px;color:var(--muted)}
+
+.top-task-item{padding:8px 10px;border-radius:7px;background:var(--surface2);margin-bottom:6px;border-left:3px solid}
+.top-task-item.Critical{border-left-color:#ef4444}
+.top-task-item.High{border-left-color:#f97316}
+.top-task-item.Medium{border-left-color:#eab308}
+.tt-name{font-size:12px;font-weight:500;color:var(--text);margin-bottom:3px;line-height:1.3}
+.tt-meta{display:flex;gap:5px;flex-wrap:wrap}
+.tt-meta span{font-size:10px;padding:1px 5px;border-radius:3px;background:var(--bg);color:var(--muted)}
+
+@media(max-width:900px){.stage-content-grid{grid-template-columns:1fr}}
+
+/* ── VENTURE TABS NAV ── */
+.venture-tabs-nav{display:flex;gap:0;padding:0 32px;border-bottom:2px solid var(--border);background:var(--surface);overflow-x:auto}
+.vtab{background:transparent;border:none;border-bottom:3px solid transparent;padding:12px 20px;color:var(--muted);font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:8px;white-space:nowrap;transition:all .15s;margin-bottom:-2px}
+.vtab:hover{color:var(--text);background:rgba(255,255,255,.03)}
+.vtab.active{color:#fff;border-bottom-color:var(--accent)}
+.vtab.v-flowar.active{border-bottom-color:var(--flowar);color:var(--flowar)}
+.vtab.v-homeservices.active{border-bottom-color:var(--homeservices);color:var(--homeservices)}
+.vtab.v-legal.active{border-bottom-color:var(--legal);color:var(--legal)}
+.vtab.v-dental.active{border-bottom-color:var(--dental);color:var(--dental)}
+.vtab.v-voice.active{border-bottom-color:var(--voice);color:var(--voice)}
+.vtab-count{background:var(--surface2);border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;color:var(--muted)}
+.vtab.active .vtab-count{background:rgba(255,255,255,.1);color:inherit}
+
+/* ── VENTURE OVERVIEW CARDS ── */
+.venture-overview-cards{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;padding:20px 32px;background:var(--bg)}
+.vc{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;border-top:3px solid;cursor:pointer;transition:all .15s;position:relative;overflow:hidden}
+.vc:hover{transform:translateY(-2px);box-shadow:0 4px 20px rgba(0,0,0,.3)}
+.vc.flowar{border-top-color:var(--flowar)}.vc.homeservices{border-top-color:var(--homeservices)}
+.vc.legal{border-top-color:var(--legal)}.vc.dental{border-top-color:var(--dental)}
+.vc.voice{border-top-color:var(--voice)}
+.vc-name{font-size:13px;font-weight:700;color:#fff;margin-bottom:4px}
+.vc-stage{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;opacity:.7;margin-bottom:10px}
+.vc-progress{display:flex;gap:3px;margin-bottom:12px}
+.vc-dot{height:4px;flex:1;border-radius:2px;background:var(--border)}
+.vc-dot.done{opacity:.4}.vc-dot.active{opacity:1}
+.vc-stats{display:flex;gap:10px;margin-bottom:10px}
+.vc-stat{text-align:center}
+.vc-stat .n{font-size:18px;font-weight:700;color:#fff;line-height:1}
+.vc-stat .l{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
+.vc-tasks{border-top:1px solid var(--border);padding-top:10px;display:flex;flex-direction:column;gap:5px}
+.vc-task{font-size:11px;color:var(--muted);line-height:1.3;display:flex;gap:5px;align-items:flex-start}
+.vc-task-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;margin-top:3px}
+@media(max-width:1100px){.venture-overview-cards{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:700px){.venture-overview-cards{grid-template-columns:1fr 1fr}}
+
+/* ── TASKS SECTION HEADER ── */
+.tasks-section-header{display:flex;align-items:center;justify-content:space-between;padding:20px 32px 4px;flex-wrap:wrap;gap:8px;border-top:1px solid var(--border);margin-top:8px}
+.tasks-section-title{font-size:16px;font-weight:700;color:#fff}
+.tasks-legend{display:flex;gap:16px;flex-wrap:wrap}
+.tasks-legend span{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)}
+
 /* ── CHARTS ── */
 .charts-section{padding:0 32px 20px}
 .charts-overview,.charts-venture{display:grid;gap:16px}
@@ -242,6 +328,11 @@ td{padding:10px 12px;vertical-align:top}
       <button id="syncReportBtn" onclick="showSyncReport()" title="View sync details" style="display:none;background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;opacity:.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.6">📋</button>
     </div>
     <div id="authArea"></div>
+    <div class="otter-sync-badge" id="otterBadge" title="Otter meeting tasks — ask Claude to sync Otter tasks to refresh">
+      <span class="otter-dot"></span>
+      <span class="otter-label">🎙 Otter</span>
+      <span id="otterSyncLabel">not synced</span>
+    </div>
     <div class="date-badge" id="currentDate"></div>
   </div>
 </header>
@@ -260,6 +351,55 @@ td{padding:10px 12px;vertical-align:top}
 
 <!-- ═══════════════════════════ STATS ════════════════════════════════════ -->
 <div class="stats-bar" id="statsBar"></div>
+
+<!-- ── VENTURE TABS NAVIGATION ── -->
+<div class="venture-tabs-nav" id="ventureTabsNav">
+  <button class="vtab active" data-venture="all" onclick="switchVenture(this)">
+    <span class="vtab-label">🌐 All Ventures</span>
+    <span class="vtab-count" id="vtab-count-all"></span>
+  </button>
+  <button class="vtab v-flowar" data-venture="flowar" onclick="switchVenture(this)">
+    <span class="vtab-label">💰 FlowAR</span>
+    <span class="vtab-count" id="vtab-count-flowar"></span>
+  </button>
+  <button class="vtab v-homeservices" data-venture="homeservices" onclick="switchVenture(this)">
+    <span class="vtab-label">🏠 HomeServices</span>
+    <span class="vtab-count" id="vtab-count-homeservices"></span>
+  </button>
+  <button class="vtab v-legal" data-venture="legal" onclick="switchVenture(this)">
+    <span class="vtab-label">⚖️ Legal Agent</span>
+    <span class="vtab-count" id="vtab-count-legal"></span>
+  </button>
+  <button class="vtab v-dental" data-venture="dental" onclick="switchVenture(this)">
+    <span class="vtab-label">🦷 Sona/Dental</span>
+    <span class="vtab-count" id="vtab-count-dental"></span>
+  </button>
+  <button class="vtab v-voice" data-venture="voice" onclick="switchVenture(this)">
+    <span class="vtab-label">🎙 Voice Platform</span>
+    <span class="vtab-count" id="vtab-count-voice"></span>
+  </button>
+</div>
+
+<!-- ── VENTURE OVERVIEW CARDS (All Ventures only) ── -->
+<div class="venture-overview-cards" id="ventureOverviewCards"></div>
+
+<!-- ── STAGE PANEL (shows when a specific venture is selected) ── -->
+<div class="stage-panel hidden" id="stagePanel">
+  <div class="stage-progress-wrap" id="stageProgressWrap"></div>
+  <div class="stage-content-grid">
+    <div class="playbook-col">
+      <div class="panel-col-title">📋 Playbook Tracker</div>
+      <div id="playbookTracker"></div>
+      <div class="playbook-legend">
+        <span>🟢 Started</span><span>✏️ In progress</span><span>⭐ Done</span><span>👁️ Referenced</span><span>— N/A</span>
+      </div>
+    </div>
+    <div class="toptasks-col">
+      <div class="panel-col-title">🔥 Top Priorities</div>
+      <div id="topTasksList"></div>
+    </div>
+  </div>
+</div>
 
 <!-- ── CHARTS ── -->
 <div class="charts-section" id="chartsSection">
@@ -297,19 +437,16 @@ td{padding:10px 12px;vertical-align:top}
   </div>
 </div>
 
-<!-- ── LEGEND ── -->
-<div class="legend">
-  <span style="font-size:11px;color:var(--muted);font-weight:600;margin-right:4px">VENTURES:</span>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--flowar)"></div>FlowAR</div>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--homeservices)"></div>HomeServices</div>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--legal)"></div>Legal Agent</div>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--dental)"></div>Sona / Dental</div>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--voice)"></div>Voice Platform</div>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--general)"></div>General</div>
-  <div class="legend-item" style="margin-left:8px"><span class="new-tag">NEW</span> = New this week</div>
-  <div class="legend-item"><span class="claude-tag">C</span> = Claude suggestion</div>
-  <div class="legend-item"><span class="otter-tag">O</span> = From Otter.ai</div>
-  <div class="legend-item"><span class="google-tag">G</span> = Synced to Google Tasks</div>
+
+<!-- ── TASKS SECTION ── -->
+<div class="tasks-section-header">
+  <span class="tasks-section-title">📋 Tasks</span>
+  <div class="tasks-legend">
+    <span><span class="new-tag">NEW</span> New this week</span>
+    <span><span class="claude-tag">C</span> Claude suggestion</span>
+    <span><span class="otter-tag">O</span> From Otter.ai</span>
+    <span><span class="google-tag">G</span> Google Tasks</span>
+  </div>
 </div>
 
 <!-- ── CONTROLS ── -->
@@ -318,17 +455,6 @@ td{padding:10px 12px;vertical-align:top}
     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
     <input id="searchInput" type="text" placeholder="Search tasks…" oninput="applyFilters()" />
   </div>
-  <div class="divider"></div>
-  <div class="filter-group" id="ventureFilters" style="display:flex;gap:6px;flex-wrap:wrap">
-    <button class="filter-btn active" data-group="venture" data-val="all" onclick="toggleFilter(this)">All Ventures</button>
-    <button class="filter-btn v-flowar"       data-group="venture" data-val="flowar"       onclick="toggleFilter(this)">💰 FlowAR</button>
-    <button class="filter-btn v-homeservices" data-group="venture" data-val="homeservices" onclick="toggleFilter(this)">🏠 HomeServices</button>
-    <button class="filter-btn v-legal"        data-group="venture" data-val="legal"        onclick="toggleFilter(this)">⚖️ Legal Agent</button>
-    <button class="filter-btn v-dental"       data-group="venture" data-val="dental"       onclick="toggleFilter(this)">🦷 Sona/Dental</button>
-    <button class="filter-btn v-voice"        data-group="venture" data-val="voice"        onclick="toggleFilter(this)">🎙 Voice Platform</button>
-    <button class="filter-btn v-general"      data-group="venture" data-val="general"      onclick="toggleFilter(this)">⚙️ General</button>
-  </div>
-  <div class="divider"></div>
   <select id="priorityFilter" onchange="applyFilters()">
     <option value="all">All Priorities</option>
     <option value="Critical">🔴 Critical</option>
@@ -428,6 +554,16 @@ td{padding:10px 12px;vertical-align:top}
 const CONFIG = {
   clientId: '371728085947-24bpmu41akpf73pqtc4pp3jtg12gsjps.apps.googleusercontent.com',
   geminiApiKey: 'AIzaSyBWTtFpBN2D8OD8Tb7HH8RGw5a7AMQy83c',
+
+  // Current stage per venture: 1=Ideation 2=Problem 3=Solution 4=Formation 5=Growth
+  ventureStages: {
+    flowar:       4,
+    homeservices: 3,
+    legal:        4,
+    dental:       3,
+    voice:        3,
+    general:      0,
+  },
 
   // Map your Google Tasks list names → venture keys in this dashboard
   listMap: {
@@ -918,6 +1054,185 @@ async function toggleTaskComplete(taskKey, currentStatus) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// PLAYBOOK DATA  (from venture studio playbook)
+// ═══════════════════════════════════════════════════════════════════
+const STAGE_NAMES = ['','Ideation','Problem','Solution','Formation','Growth'];
+const PLAYBOOK_STATUS_CYCLE = ['default','started','updated','finalized','referenced','na'];
+const PLAYBOOK_STATUS_ICONS = { default:'⬜', started:'🟢', updated:'✏️', finalized:'⭐', referenced:'👁️', na:'—' };
+const PLAYBOOK_STATUS_LABELS = { default:'Expected', started:'Started', updated:'In progress', finalized:'Done ✓', referenced:'Referenced', na:'N/A' };
+const PLAYBOOK_CACHE_KEY = 'fs_playbook';
+
+// Each artifact: name + what status is "expected" at each stage (1-5). null = not applicable.
+const PLAYBOOK_DATA = [
+  { name:'One Pager',           expected:{ 1:'started', 2:'updated', 3:'finalized', 4:'updated', 5:null } },
+  { name:'Market Sizing',       expected:{ 1:'started', 2:'updated', 3:'finalized', 4:'updated', 5:null } },
+  { name:'Competitive Analysis',expected:{ 1:'started', 2:'updated', 3:'finalized', 4:'updated', 5:null } },
+  { name:'Assumptions List',    expected:{ 1:'started', 2:'updated', 3:'finalized', 4:'finalized',5:'referenced'} },
+  { name:'Interviews',          expected:{ 1:'started', 2:'updated', 3:'finalized', 4:'referenced',5:null } },
+  { name:'Cold Outreach',       expected:{ 1:'started', 2:'updated', 3:'updated',   4:'updated',  5:'referenced'} },
+  { name:'Personas',            expected:{ 1:'started', 2:'updated', 3:'finalized', 4:'referenced',5:'referenced'} },
+  { name:'Product Strategy',    expected:{ 1:'started', 2:'updated', 3:'finalized', 4:'finalized', 5:'updated'} },
+  { name:'PRD',                 expected:{ 1:null,      2:'started', 3:'finalized', 4:'referenced',5:'referenced'} },
+  { name:'Solution Interviews', expected:{ 1:null,      2:null,      3:'started',   4:'referenced',5:null } },
+  { name:'Prototypes',          expected:{ 1:null,      2:'updated', 3:'finalized', 4:'referenced',5:'updated'} },
+  { name:'MVP Scope',           expected:{ 1:null,      2:null,      3:'updated',   4:'finalized', 5:'referenced'} },
+  { name:'Sales Materials',     expected:{ 1:null,      2:null,      3:'finalized', 4:'updated',   5:'updated'} },
+  { name:'Pilot Agreement',     expected:{ 1:null,      2:null,      3:'finalized', 4:'updated',   5:'referenced'} },
+  { name:'Founder Briefing',    expected:{ 1:null,      2:'started', 3:'finalized', 4:'updated',   5:'referenced'} },
+  { name:'Validation Memo',     expected:{ 1:null,      2:null,      3:'finalized', 4:'referenced',5:null } },
+  { name:'Scorecards',          expected:{ 1:null,      2:null,      3:'finalized', 4:'referenced',5:null } },
+];
+
+function getPlaybookData() {
+  try { return JSON.parse(localStorage.getItem(PLAYBOOK_CACHE_KEY) || '{}'); } catch { return {}; }
+}
+function savePlaybookStatus(venture, artifactName, status) {
+  const d = getPlaybookData();
+  if (!d[venture]) d[venture] = {};
+  d[venture][artifactName] = status;
+  localStorage.setItem(PLAYBOOK_CACHE_KEY, JSON.stringify(d));
+}
+function cyclePlaybookStatus(venture, artifactName) {
+  const d    = getPlaybookData();
+  const cur  = d[venture]?.[artifactName] || 'default';
+  const idx  = PLAYBOOK_STATUS_CYCLE.indexOf(cur);
+  const next = PLAYBOOK_STATUS_CYCLE[(idx + 1) % PLAYBOOK_STATUS_CYCLE.length];
+  savePlaybookStatus(venture, artifactName, next);
+  buildStagePanel(venture);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// VENTURE NAVIGATION + OVERVIEW CARDS
+// ═══════════════════════════════════════════════════════════════════
+const VENTURE_DEFS = [
+  {key:'flowar',       emoji:'💰', label:'FlowAR',       cls:'flowar',       color:'var(--flowar)'},
+  {key:'homeservices', emoji:'🏠', label:'HomeServices',  cls:'homeservices', color:'var(--homeservices)'},
+  {key:'legal',        emoji:'⚖️', label:'Legal Agent',   cls:'legal',        color:'var(--legal)'},
+  {key:'dental',       emoji:'🦷', label:'Sona/Dental',   cls:'dental',       color:'var(--dental)'},
+  {key:'voice',        emoji:'🎙', label:'Voice Platform',cls:'voice',        color:'var(--voice)'},
+];
+const STAGE_EMOJIS = ['','💡','🔍','🔨','🚀','📈'];
+
+function switchVenture(btn) {
+  document.querySelectorAll('.vtab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  activeVenture = btn.dataset.venture;
+  const isAll = activeVenture === 'all';
+  document.getElementById('ventureOverviewCards').style.display = isAll ? '' : 'none';
+  applyFilters();
+}
+
+function buildVentureCards() {
+  const container = document.getElementById('ventureOverviewCards');
+  if (!container) return;
+  const PRIORITY_COLORS_MAP = {Critical:'#ef4444',High:'#f97316',Medium:'#eab308',Low:'#6b7280'};
+  container.innerHTML = VENTURE_DEFS.map(v => {
+    const vt      = tasks.filter(t => t.venture === v.key);
+    const active  = vt.filter(t => t.status !== 'Completed');
+    const crit    = active.filter(t => t.priority === 'Critical').length;
+    const stage   = CONFIG.ventureStages[v.key] || 1;
+    const stageName = STAGE_NAMES[stage] || '';
+    const topTasks  = [...active]
+      .sort((a,b)=>({Critical:0,High:1,Medium:2,Low:3}[a.priority]-{Critical:0,High:1,Medium:2,Low:3}[b.priority]))
+      .slice(0,3);
+    const dots = [1,2,3,4,5].map(n =>
+      `<div class="vc-dot ${n < stage ? 'done' : n === stage ? 'active' : ''}" style="${n<=stage?'background:'+v.color:''};${n===stage?'height:6px':''}"></div>`
+    ).join('');
+    return `
+      <div class="vc ${v.cls}" onclick="switchVenture(document.querySelector('.vtab[data-venture=${v.key}]'))">
+        <div class="vc-name">${v.emoji} ${v.label}</div>
+        <div class="vc-stage" style="color:${v.color}">${STAGE_EMOJIS[stage]} ${stageName}</div>
+        <div class="vc-progress">${dots}</div>
+        <div class="vc-stats">
+          <div class="vc-stat"><div class="n">${active.length}</div><div class="l">Active</div></div>
+          ${crit > 0 ? `<div class="vc-stat"><div class="n" style="color:#ef4444">${crit}</div><div class="l">Critical</div></div>` : ''}
+        </div>
+        ${topTasks.length ? `<div class="vc-tasks">${topTasks.map(t=>`
+          <div class="vc-task">
+            <div class="vc-task-dot" style="background:${PRIORITY_COLORS_MAP[t.priority]}"></div>
+            <span>${t.name.length>42?t.name.slice(0,42)+'…':t.name}</span>
+          </div>`).join('')}</div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// STAGE PANEL  — per-venture playbook tracker + top tasks
+// ═══════════════════════════════════════════════════════════════════
+const VENTURE_COLORS = { flowar:'#3b82f6', homeservices:'#22c55e', legal:'#a855f7', dental:'#f97316', voice:'#14b8a6', general:'#64748b' };
+
+function buildStagePanel(venture) {
+  const panel = document.getElementById('stagePanel');
+  const overviewCards = document.getElementById('ventureOverviewCards');
+  if (!venture || venture === 'all') {
+    panel.classList.add('hidden');
+    if (overviewCards) overviewCards.style.display = '';
+    return;
+  }
+  if (overviewCards) overviewCards.style.display = 'none';
+  panel.classList.remove('hidden');
+
+  const stage     = CONFIG.ventureStages[venture] || 1;
+  const vColor    = VENTURE_COLORS[venture] || '#6366f1';
+  const pbData    = getPlaybookData();
+  const pbVenture = pbData[venture] || {};
+
+  // ── Stage progress bar
+  const stageNames = ['','Ideation','Problem','Solution','Formation','Growth'];
+  const stageEmoji = ['','💡','🔍','🔨','🚀','📈'];
+  document.getElementById('stageProgressWrap').innerHTML = stageNames.slice(1).map((name, i) => {
+    const n = i + 1;
+    const cls = n < stage ? 'stage-step past' : n === stage ? 'stage-step active' : 'stage-step';
+    const style = n === stage ? `style="background:${vColor}22;color:${vColor};border-bottom:2px solid ${vColor}"` : '';
+    return `<div class="${cls}" ${style}><span class="stage-step-num">${stageEmoji[n]}</span><span class="stage-step-label">${name}</span></div>`;
+  }).join('');
+
+  // ── Playbook tracker: show all artifacts that have an expected status at this stage
+  const relevant = PLAYBOOK_DATA.filter(a => a.expected[stage] !== null && a.expected[stage] !== undefined);
+  const naItems  = PLAYBOOK_DATA.filter(a => !a.expected[stage]);
+
+  function renderArtifact(artifact, isNa) {
+    const rawStatus = pbVenture[artifact.name];
+    const expected  = artifact.expected[stage];
+    const status    = rawStatus && rawStatus !== 'default' ? rawStatus : (isNa ? 'na' : (expected || 'default'));
+    const icon      = PLAYBOOK_STATUS_ICONS[status] || '⬜';
+    const label     = PLAYBOOK_STATUS_LABELS[status] || status;
+    const badgeCls  = `pb-badge status-${status}`;
+    const rowCls    = `pb-row${isNa ? ' na-row' : ''}`;
+    const onclick   = isNa ? '' : `onclick="cyclePlaybookStatus('${venture}','${artifact.name.replace(/'/g,"\\'")}')"`;
+    return `<div class="${rowCls}"><span class="pb-name" title="${artifact.name}">${artifact.name}</span><span class="${badgeCls}" ${onclick} title="Click to update">${icon} ${label}</span></div>`;
+  }
+
+  document.getElementById('playbookTracker').innerHTML = `
+    <div class="playbook-grid">
+      ${relevant.map(a => renderArtifact(a, false)).join('')}
+      ${naItems.map(a => renderArtifact(a, true)).join('')}
+    </div>`;
+
+  // ── Top priority tasks
+  const ventTasks = tasks.filter(t => t.venture === venture && t.status !== 'Completed');
+  const sorted    = [...ventTasks].sort((a, b) => {
+    const po = {Critical:0, High:1, Medium:2, Low:3};
+    const uo = {Now:0, Soon:1, Later:2};
+    return (po[a.priority] - po[b.priority]) || (uo[a.urgency] - uo[b.urgency]);
+  });
+  const top = sorted.slice(0, 6);
+
+  document.getElementById('topTasksList').innerHTML = top.length
+    ? top.map(t => `
+        <div class="top-task-item ${t.priority}">
+          <div class="tt-name">${t.name}</div>
+          <div class="tt-meta">
+            <span class="pbadge ${t.priority}" style="font-size:10px">${t.priority}</span>
+            <span>${t.urgency}</span>
+            <span>${t.category}</span>
+            ${t.fromGoogle ? '<span style="color:#93c5fd">G</span>' : ''}
+          </div>
+        </div>`).join('')
+    : '<div style="color:var(--muted);font-size:12px;padding:8px 0">No active tasks 🎉</div>';
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // CHARTS  (Chart.js 4)
 // ═══════════════════════════════════════════════════════════════════
 const _charts = {};
@@ -1129,6 +1444,39 @@ function buildDashboard(googleItems) {
     });
   }
 
+  // 3. Merge Otter tasks (from otter-tasks.js companion file)
+  const otterData = (typeof window !== 'undefined' && window.OTTER_TASKS) ? window.OTTER_TASKS : null;
+  if (otterData && Array.isArray(otterData.tasks)) {
+    const existingNames = new Set(merged.map(t => normalizeTitle(t.name)));
+    let addedCount = 0;
+    for (const ot of otterData.tasks) {
+      const key = normalizeTitle(ot.name);
+      if (usedKeys.has(key)) continue;
+      // Fuzzy dedup: skip if very similar to an existing task
+      let isDup = false;
+      for (const existing of merged) {
+        if (existing.venture === ot.venture && titleSimilarity(existing.name, ot.name) >= 0.6) {
+          isDup = true; break;
+        }
+      }
+      if (isDup) continue;
+      const localDoneKey = key;
+      const status = getLocalDone()[localDoneKey] ? 'Completed' : (ot.stale ? 'Backlog' : 'To Do');
+      merged.push({ ...ot, status, fromOtter: true, fromGoogle: false, googleKey: null });
+      usedKeys.add(key);
+      addedCount++;
+    }
+    // Update Otter badge
+    const badge = document.getElementById('otterBadge');
+    const label = document.getElementById('otterSyncLabel');
+    if (badge && label) {
+      const d = new Date(otterData.lastSync);
+      const dateStr = d.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+      label.textContent = `${addedCount} tasks · ${dateStr}`;
+      badge.classList.add('loaded');
+    }
+  }
+
   tasks = merged;
   buildStats();
   applyFilters();
@@ -1152,38 +1500,33 @@ function setSyncStatus(state, msg) {
 // STATS
 // ═══════════════════════════════════════════════════════════════════
 function buildStats() {
-  const active = tasks.filter(t => t.status !== 'Completed');
+  const active   = tasks.filter(t => t.status !== 'Completed');
   const critical = active.filter(t => t.priority === 'Critical').length;
   const nowCount = active.filter(t => t.urgency === 'Now').length;
-  const ventures = [
-    {key:'flowar',label:'💰 FlowAR',stage:'Post-Validation → Pilots',cls:'flowar'},
-    {key:'homeservices',label:'🏠 HomeServices',stage:'Validation → Pilots',cls:'homeservices'},
-    {key:'legal',label:'⚖️ Legal Agent',stage:'Formation Sprint',cls:'legal'},
-    {key:'dental',label:'🦷 Sona/Dental',stage:'Early Validation',cls:'dental'},
-    {key:'voice',label:'🎙 Voice Platform',stage:'MVP Definition',cls:'voice'},
-  ];
+
+  // Simplified 3-card stats bar
   document.getElementById('statsBar').innerHTML = `
-    <div class="stat-card critical"><div class="label">Critical Tasks</div><div class="value">${critical}</div><div class="sub">Needs immediate attention</div></div>
-    <div class="stat-card now"><div class="label">Do This Week</div><div class="value">${nowCount}</div><div class="sub">Urgency: Now</div></div>
-    <div class="stat-card"><div class="label">Total Tasks</div><div class="value">${active.length}</div><div class="sub">Across all ventures</div></div>
-    ${ventures.map(v=>{
-      const vt = tasks.filter(t=>t.venture===v.key&&t.status!=='Completed');
-      const vc = vt.filter(t=>t.priority==='Critical').length;
-      return `<div class="stat-card venture ${v.cls}"><div class="label">${v.label}</div><div class="value">${vt.length}</div><div class="sub">${vc>0?`🔴 ${vc} critical · `:''}${v.stage}</div></div>`;
-    }).join('')}`;
+    <div class="stat-card critical"><div class="label">🔴 Critical</div><div class="value">${critical}</div><div class="sub">Need immediate action</div></div>
+    <div class="stat-card now"><div class="label">⚡ Do This Week</div><div class="value">${nowCount}</div><div class="sub">Urgency: Now</div></div>
+    <div class="stat-card"><div class="label">📋 Active Tasks</div><div class="value">${active.length}</div><div class="sub">Across all ventures</div></div>`;
+
+  // Update tab counts
+  const VENTURES = ['flowar','homeservices','legal','dental','voice'];
+  const allEl = document.getElementById('vtab-count-all');
+  if (allEl) allEl.textContent = active.length;
+  VENTURES.forEach(v => {
+    const el = document.getElementById('vtab-count-' + v);
+    if (el) el.textContent = tasks.filter(t => t.venture === v && t.status !== 'Completed').length;
+  });
+
+  // Build venture overview cards (only refresh when showing all)
+  buildVentureCards();
 }
 
 // ═══════════════════════════════════════════════════════════════════
 // FILTERS + SORT
 // ═══════════════════════════════════════════════════════════════════
-function toggleFilter(btn) {
-  if (btn.dataset.group === 'venture') {
-    document.querySelectorAll('[data-group="venture"]').forEach(b=>b.classList.remove('active'));
-    btn.classList.add('active');
-    activeVenture = btn.dataset.val;
-  }
-  applyFilters();
-}
+function toggleFilter(btn) { applyFilters(); } // legacy shim — venture switching now via switchVenture()
 
 function applyFilters() {
   const search      = document.getElementById('searchInput').value.toLowerCase();
@@ -1226,6 +1569,7 @@ function applyFilters() {
   document.getElementById('resultCount').textContent = filtered.length - done;
   document.getElementById('criticalCount').textContent =
     (crit>0?`🔴 ${crit} critical`:'') + (done>0?`  ·  ✅ ${done} completed`:'');
+  buildStagePanel(activeVenture);
   updateCharts();
 }
 
@@ -1282,8 +1626,9 @@ function renderTable(filtered) {
         <div class="task-name">
           ${t.priority==='Critical'?'🔴 ':t.priority==='High'?'🟠 ':''}${t.name}
           ${t.isNew?'<span class="new-tag">NEW</span>':''}
-          ${t.source==='otter'?`<a href="${t.otterLink||'#'}" target="_blank" class="otter-tag" title="From Otter.ai meeting notes">O</a>`:t.source==='claude'?'<span class="claude-tag" title="Claude suggestion">C</span>':''}
+          ${t.source==='otter'?`<a href="${t.otterLink||'#'}" target="_blank" class="otter-tag" title="${t.meetingTitle||'Otter.ai'} · ${t.meetingDate||''} · ${t.assignee||''}">O</a>`:t.source==='claude'?'<span class="claude-tag" title="Claude suggestion">C</span>':''}
           ${t.fromGoogle?'<span class="google-tag" title="Synced to Google Tasks">G</span>':''}
+          ${t.assignee&&t.source==='otter'?`<span style="font-size:10px;color:var(--muted);margin-left:4px">@${t.assignee}</span>`:''}
         </div>
         <div class="task-desc">${t.desc}</div>
       </td>
@@ -1315,8 +1660,9 @@ function renderKanban(filtered) {
           <div class="kc-top">
             <span class="vbadge ${t.venture}">${t.ventureLabel}</span>
             ${t.isNew?'<span class="new-tag">NEW</span>':''}
-            ${t.source==='otter'?`<a href="${t.otterLink||'#'}" target="_blank" class="otter-tag" title="From Otter.ai meeting notes">O</a>`:t.source==='claude'?'<span class="claude-tag" title="Claude suggestion">C</span>':''}
+            ${t.source==='otter'?`<a href="${t.otterLink||'#'}" target="_blank" class="otter-tag" title="${t.meetingTitle||'Otter.ai'} · ${t.meetingDate||''} · ${t.assignee||''}">O</a>`:t.source==='claude'?'<span class="claude-tag" title="Claude suggestion">C</span>':''}
             ${t.fromGoogle?'<span class="google-tag" title="Synced to Google Tasks">G</span>':''}
+            ${t.assignee&&t.source==='otter'?`<span style="font-size:10px;color:var(--muted)">@${t.assignee}</span>`:''}
           </div>
           <div class="kc-name">${t.priority==='Critical'?'🔴 ':t.priority==='High'?'🟠 ':''}${t.name}</div>
           <div class="kc-desc">${t.desc.length>100?t.desc.slice(0,100)+'…':t.desc}</div>
@@ -1354,6 +1700,12 @@ document.addEventListener('DOMContentLoaded', () => {
   } catch (e) { googleTaskMap = {}; }
 
   buildDashboard(Object.values(googleTaskMap));
+
+  // Hide venture cards initially if a venture is active (shouldn't be on fresh load)
+  if (activeVenture !== 'all') {
+    const ov = document.getElementById('ventureOverviewCards');
+    if (ov) ov.style.display = 'none';
+  }
 
   if (CONFIG.clientId === 'YOUR_GOOGLE_CLIENT_ID') {
     setSyncStatus('off', 'Not configured');
