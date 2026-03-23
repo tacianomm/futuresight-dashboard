@@ -379,7 +379,7 @@ td{padding:10px 12px;vertical-align:top}
     <div class="sync-area" id="syncArea">
       <span class="sync-dot off" id="syncDot"></span>
       <span class="sync-time" id="syncTime">Offline mode</span>
-      <button class="sync-btn" id="syncBtn" onclick="syncWithGoogle()" disabled title="Connect Google Tasks to sync">
+      <button class="sync-btn" id="syncBtn" onclick="isAuthenticated ? syncWithGoogle() : handleAuthClick()" title="Sync Google Tasks (click to connect if disconnected)">
         <span id="syncIcon">⟳</span> Sync
       </button>
       <button id="syncReportBtn" onclick="showSyncReport()" title="View sync details" style="display:none;background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;opacity:.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.6">📋</button>
@@ -811,7 +811,12 @@ function onTokenResponse(response) {
 
 function attemptSilentRefresh() {
   if (tokenClient) { tokenClient.requestAccessToken({ prompt: 'none' }); }
-  else if (!gisReady) { pendingSilentRefresh = true; setSyncStatus('off', 'Checking session…'); }
+  else if (!gisReady) {
+    pendingSilentRefresh = true;
+    setSyncStatus('off', 'Checking session…');
+    // Safety net: if GIS script hasn't loaded within 7s, stop waiting and show reconnect UI
+    setTimeout(() => { if (!isAuthenticated) showReconnectOrSetup(); }, 7000);
+  }
   else { showReconnectOrSetup(); }
 }
 
@@ -1101,13 +1106,14 @@ function findVentureForList(listTitle) {
 }
 
 async function syncWithGoogle() {
-  const token = await getValidToken();
+  const token = getValidToken();
   if (!token) {
     isAuthenticated = false;
     renderAuthArea(false);
-    document.getElementById('setupBanner').classList.remove('hidden');
-    document.getElementById('connectBtn').classList.remove('hidden');
+    setSyncStatus('warn', 'Session expired · click Sync to reconnect');
     buildDashboard([]);
+    // Kick off the re-auth flow so the user doesn't have to find the Connect button
+    if (tokenClient) tokenClient.requestAccessToken({ prompt: 'select_account' });
     return;
   }
   setSyncStatus('syncing', 'Syncing…');
