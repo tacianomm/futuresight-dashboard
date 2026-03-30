@@ -4,6 +4,11 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>FutureSight — Product Lead Dashboard</title>
+<script>
+// Stub: GIS may load (from cache) before the main script defines onGisLoaded.
+// If it fires early we set a flag; the real initializer checks and replays.
+function onGisLoaded() { window.__gisLoadedEarly = true; }
+</script>
 <script src="https://accounts.google.com/gsi/client" async onload="onGisLoaded()"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -800,6 +805,8 @@ window.onGisLoaded = function () {
   });
   if (pendingSilentRefresh) { pendingSilentRefresh = false; tokenClient.requestAccessToken({ prompt: 'none' }); }
 };
+// If GIS finished loading before this script ran, replay now
+if (window.__gisLoadedEarly) window.onGisLoaded();
 
 function onTokenResponse(response) {
   if (response.error) { console.warn('[Auth] token error:', response.error); showReconnectOrSetup(); return; }
