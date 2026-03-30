@@ -27,6 +27,7 @@ const STATUS_CLASSES: Record<string, string> = {
   'In Progress': 's-inprogress',
   'Blocked':     's-blocked',
   'Backlog':     's-backlog',
+  "Won't Do":    's-wontdo',
   'Completed':   's-completed',
 };
 const VENTURE_COLORS: Record<string, string> = {

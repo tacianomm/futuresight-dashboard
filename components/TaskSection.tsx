@@ -141,6 +141,7 @@ export default function TaskSection() {
           <option value="In Progress">In Progress</option>
           <option value="Blocked">Blocked</option>
           <option value="Backlog">Backlog</option>
+          <option value="Won't Do">Won't Do</option>
           <option value="Completed">✅ Completed</option>
         </select>
 

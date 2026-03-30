@@ -4,7 +4,7 @@ export type Venture = 'flowar' | 'homeservices' | 'legal' | 'dental' | 'voice' |
 export type Priority = 'Critical' | 'High' | 'Medium' | 'Low';
 export type Urgency = 'Now' | 'Soon' | 'Later';
 export type Category = 'Strategy' | 'Product' | 'Engineering' | 'Operations' | 'GTM/Sales' | 'Research';
-export type TaskStatus = 'To Do' | 'In Progress' | 'Blocked' | 'Backlog' | 'Completed';
+export type TaskStatus = 'To Do' | 'In Progress' | 'Blocked' | 'Backlog' | "Won't Do" | 'Completed';
 export type TaskSource = 'claude' | 'otter' | 'google';
 export type VentureHealth = 'red' | 'yellow' | 'green';
 
