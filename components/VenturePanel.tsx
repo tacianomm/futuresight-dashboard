@@ -31,6 +31,7 @@ const PILLS = [
   { key: 'at-risk',   label: '⚠️ At Risk',   value: 'yellow' },
   { key: 'blocked',   label: '🔴 Blocked',   value: 'red'    },
   { key: 'milestone', label: '🎉 Milestone', value: 'green'  },
+  { key: 'killed',    label: '💀 Killed',    value: 'gray'   },
 ];
 
 // Auto health label
@@ -38,7 +39,7 @@ const AUTO_LABEL: Record<string, string> = {
   red: 'Needs action', yellow: 'Watch closely', green: 'On track',
 };
 const DOT_CLASS: Record<string, string> = {
-  red: 'red', yellow: 'yellow', green: 'green',
+  red: 'red', yellow: 'yellow', green: 'green', gray: 'off',
 };
 
 interface Props { venture: Venture; }
@@ -70,6 +71,8 @@ export default function VenturePanel({ venture }: Props) {
   const dotCls       = DOT_CLASS[health] ?? 'green';
   const autoLabel    = AUTO_LABEL[autoHealth] ?? 'On track';
 
+  const isKilled = manualPill === 'killed';
+
   const [noteVal, setNoteVal] = useState(playbookData['_venture_note'] ?? '');
 
   // Keep note in sync when venture changes
@@ -85,7 +88,8 @@ export default function VenturePanel({ venture }: Props) {
       setVentureStatus(venture, '');
       setPlaybookStatus(venture, '_venture_pill', '');
     } else {
-      setVentureStatus(venture, pill.value as 'red' | 'yellow' | 'green');
+      const colorVal = pill.value === 'gray' ? 'red' : pill.value as 'red' | 'yellow' | 'green';
+      setVentureStatus(venture, colorVal);
       setPlaybookStatus(venture, '_venture_pill', pill.key);
     }
   }
@@ -107,7 +111,7 @@ export default function VenturePanel({ venture }: Props) {
   const top6 = sorted.slice(0, 6);
 
   return (
-    <div className="stage-panel">
+    <div className={`stage-panel${isKilled ? ' killed' : ''}`}>
 
       {/* ── Venture health bar ── */}
       <div className="venture-health-bar">
@@ -139,6 +143,13 @@ export default function VenturePanel({ venture }: Props) {
           <button className="vh-save-btn" onClick={handleNoteSave}>Save</button>
         </div>
       </div>
+
+      {/* ── Killed banner ── */}
+      {isKilled && (
+        <div className="killed-banner">
+          💀 This venture has been killed. All data is preserved in read-only mode.
+        </div>
+      )}
 
       {/* ── Stage progress bar ── */}
       <div className="stage-progress-wrap">

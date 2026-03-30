@@ -333,6 +333,7 @@ body {
 .vh-pill.active.at-risk   { background: #78350f; border-color: #f9731644; color: #fdba74; }
 .vh-pill.active.blocked   { background: #7f1d1d; border-color: #ef444444; color: #fca5a5; }
 .vh-pill.active.milestone { background: #1e3a5f; border-color: #60a5fa44; color: #93c5fd; }
+.vh-pill.active.killed    { background: #1f2937; border-color: #4b556344; color: #9ca3af; }
 .vh-note-wrap { flex: 1; min-width: 180px; display: flex; align-items: center; gap: 6px; }
 .vh-note {
   background: transparent; border: none; border-bottom: 1px solid var(--border);
@@ -350,6 +351,14 @@ body {
 
 /* ── STAGE PANEL ───────────────────────────────────────────────────────────── */
 .stage-panel { padding: 0 32px 8px; }
+.stage-panel.killed .stage-progress-wrap,
+.stage-panel.killed .stage-content-grid { opacity: .3; pointer-events: none; filter: grayscale(1); user-select: none; }
+.killed-banner {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; margin: 8px 0;
+  background: rgba(75,85,99,.12); border: 1px solid rgba(75,85,99,.3);
+  border-radius: 6px; color: #6b7280; font-size: 12px; font-style: italic;
+}
 .stage-progress-wrap {
   display: flex; align-items: center; margin-bottom: 16px;
   background: var(--surface); border: 1px solid var(--border);
