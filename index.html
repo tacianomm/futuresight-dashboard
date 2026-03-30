@@ -4,11 +4,6 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>FutureSight — Product Lead Dashboard</title>
-<script>
-// Stub: GIS may load (from cache) before the main script defines onGisLoaded.
-// If it fires early we set a flag; the real initializer checks and replays.
-function onGisLoaded() { window.__gisLoadedEarly = true; }
-</script>
 <script src="https://accounts.google.com/gsi/client" async onload="onGisLoaded()"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -185,6 +180,7 @@ td{padding:10px 12px;vertical-align:top}
 .sbadge.inprog{background:rgba(99,102,241,.2);color:#a5b4fc}
 .sbadge.blocked{background:rgba(239,68,68,.15);color:#fca5a5}
 .sbadge.backlog{background:rgba(55,65,81,.4);color:#6b7280}
+.sbadge.wontdo{background:rgba(75,85,99,.25);color:#6b7280;text-decoration:line-through}
 .sbadge.done{background:rgba(34,197,94,.15);color:#86efac}
 .cbadge{display:inline-block;border-radius:4px;padding:2px 7px;font-size:10px;background:var(--surface2);color:var(--muted);border:1px solid var(--border);white-space:nowrap}
 .google-tag{font-size:10px;background:rgba(66,133,244,.15);color:#93c5fd;border:1px solid rgba(66,133,244,.3);border-radius:3px;padding:1px 5px;margin-left:5px;vertical-align:middle}
@@ -549,6 +545,7 @@ td{padding:10px 12px;vertical-align:top}
     <option value="In Progress">In Progress</option>
     <option value="Blocked">Blocked</option>
     <option value="Backlog">Backlog</option>
+    <option value="Won't Do">Won't Do</option>
     <option value="Completed">✅ Completed</option>
   </select>
   <div class="divider"></div>
@@ -805,8 +802,6 @@ window.onGisLoaded = function () {
   });
   if (pendingSilentRefresh) { pendingSilentRefresh = false; tokenClient.requestAccessToken({ prompt: 'none' }); }
 };
-// If GIS finished loading before this script ran, replay now
-if (window.__gisLoadedEarly) window.onGisLoaded();
 
 function onTokenResponse(response) {
   if (response.error) { console.warn('[Auth] token error:', response.error); showReconnectOrSetup(); return; }
@@ -1490,7 +1485,7 @@ const VENTURE_META = [
   {key:'general',      label:'⚙️ General',       color:'#64748b'},
 ];
 
-const STATUS_COLORS  = {'To Do':'#475569','In Progress':'#6366f1','Blocked':'#ef4444','Backlog':'#374151','Completed':'#22c55e'};
+const STATUS_COLORS  = {'To Do':'#475569','In Progress':'#6366f1','Blocked':'#ef4444','Backlog':'#374151','Completed':'#22c55e',"Won't Do":'#4b5563'};
 const PRIORITY_COLORS = {Critical:'#ef4444',High:'#f97316',Medium:'#eab308',Low:'#6b7280'};
 
 const BASE_OPTS = {
@@ -1533,7 +1528,7 @@ function _buildOverviewCharts() {
   const all    = tasks;
 
   // Status donut
-  const statuses = ['To Do','In Progress','Blocked','Backlog','Completed'];
+  const statuses = ['To Do','In Progress','Blocked','Backlog',"Won't Do",'Completed'];
   const sCounts  = statuses.map(s => all.filter(t => t.status === s).length);
   _doughnut('statusChart', statuses, sCounts, statuses.map(s => STATUS_COLORS[s]),
     'statusCenter', active.length, 'active');
@@ -1733,7 +1728,7 @@ function buildDashboard(googleItems) {
 let activeVenture = 'all', sortCol = 'priority', sortDir = 1;
 const priorityOrder = { Critical:0, High:1, Medium:2, Low:3 };
 const urgencyOrder  = { Now:0, Soon:1, Later:2 };
-const statusOrder   = { 'To Do':0, 'In Progress':1, 'Blocked':2, 'Backlog':3, 'Completed':4 };
+const statusOrder   = { 'To Do':0, 'In Progress':1, 'Blocked':2, 'Backlog':3, "Won't Do":4, 'Completed':5 };
 
 function setSyncStatus(state, msg) {
   const dot = document.getElementById('syncDot');
@@ -2070,10 +2065,11 @@ function effortDots(n) {
 }
 
 function sClass(s){
-  if(s==='To Do')     return 'todo';
+  if(s==='To Do')       return 'todo';
   if(s==='In Progress') return 'inprog';
-  if(s==='Blocked')   return 'blocked';
-  if(s==='Completed') return 'done';
+  if(s==='Blocked')     return 'blocked';
+  if(s==='Completed')   return 'done';
+  if(s==="Won't Do")    return 'wontdo';
   return 'backlog';
 }
 
