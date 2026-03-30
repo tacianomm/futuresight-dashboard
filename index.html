@@ -253,6 +253,10 @@ td{padding:10px 12px;vertical-align:top}
 .vh-pill.active.at-risk{background:#78350f;border-color:#f9731644;color:#fdba74}
 .vh-pill.active.blocked{background:#7f1d1d;border-color:#ef444444;color:#fca5a5}
 .vh-pill.active.milestone{background:#1e3a5f;border-color:#60a5fa44;color:#93c5fd}
+.vh-pill.active.killed{background:#1f2937;border-color:#4b556344;color:#9ca3af}
+.stage-panel.killed .stage-progress-wrap,
+.stage-panel.killed .stage-content-grid{opacity:.3;pointer-events:none;filter:grayscale(1);user-select:none}
+.killed-banner{display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(75,85,99,.12);border:1px solid rgba(75,85,99,.3);border-radius:6px;margin:8px 0;color:#6b7280;font-size:12px;font-style:italic}
 .vh-note-wrap{flex:1;min-width:180px;display:flex;align-items:center;gap:6px}
 .vh-note{background:transparent;border:none;border-bottom:1px solid var(--border);color:#ccc;font-size:12px;width:100%;outline:none;padding:2px 4px;transition:border-color .15s}
 .vh-note:focus{border-bottom-color:var(--accent)}
@@ -1340,9 +1344,9 @@ function buildVentureCards() {
   const container = document.getElementById('ventureOverviewCards');
   if (!container) return;
   const PRIORITY_COLORS_MAP = {Critical:'#ef4444',High:'#f97316',Medium:'#eab308',Low:'#6b7280'};
-  const STATUS_TO_DOT = { 'on-track':'green', 'at-risk':'yellow', 'blocked':'red', 'milestone':'green' };
-  const STATUS_LABELS = { 'on-track':'On Track', 'at-risk':'At Risk', 'blocked':'Blocked', 'milestone':'🎉 Milestone' };
-  const STATUS_COLORS = { 'on-track':'#22c55e', 'at-risk':'#eab308', 'blocked':'#ef4444', 'milestone':'#60a5fa' };
+  const STATUS_TO_DOT = { 'on-track':'green', 'at-risk':'yellow', 'blocked':'red', 'milestone':'green', 'killed':'off' };
+  const STATUS_LABELS = { 'on-track':'On Track', 'at-risk':'At Risk', 'blocked':'Blocked', 'milestone':'🎉 Milestone', 'killed':'💀 Killed' };
+  const STATUS_COLORS = { 'on-track':'#22c55e', 'at-risk':'#eab308', 'blocked':'#ef4444', 'milestone':'#60a5fa', 'killed':'#4b5563' };
   const DOT_COLORS    = { red:'#ef4444', yellow:'#eab308', green:'#22c55e' };
 
   container.innerHTML = VENTURE_DEFS.map(v => {
@@ -1409,6 +1413,19 @@ function buildStagePanel(venture) {
   panel.classList.remove('hidden');
 
   buildVentureHealthBar(venture);
+
+  // Killed state: gray out stage/playbook content and show banner
+  const isKilled = getVentureHealth(venture).status === 'killed';
+  panel.classList.toggle('killed', isKilled);
+  let killedBanner = document.getElementById('killedBanner');
+  if (!killedBanner) {
+    killedBanner = document.createElement('div');
+    killedBanner.id = 'killedBanner';
+    killedBanner.className = 'killed-banner';
+    killedBanner.innerHTML = '💀 This venture has been killed. All tasks and playbook items are archived and read-only.';
+    document.getElementById('ventureHealthBar').after(killedBanner);
+  }
+  killedBanner.style.display = isKilled ? 'flex' : 'none';
 
   const stage     = CONFIG.ventureStages[venture] || 1;
   const vColor    = VENTURE_COLORS[venture] || '#6366f1';
@@ -1749,6 +1766,7 @@ const VH_STATUSES = [
   { key:'at-risk',   label:'At Risk',   emoji:'🟡' },
   { key:'blocked',   label:'Blocked',   emoji:'🔴' },
   { key:'milestone', label:'Milestone', emoji:'🎉' },
+  { key:'killed',    label:'Killed',    emoji:'💀' },
 ];
 
 function getVentureHealth(venture) {
