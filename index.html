@@ -154,9 +154,11 @@ tbody tr.completed-row .task-name{text-decoration:line-through;color:var(--muted
 td{padding:10px 12px;vertical-align:top}
 
 /* complete checkbox */
-.check-col{width:28px}
 .task-check{width:15px;height:15px;accent-color:var(--accent);cursor:pointer;margin-top:2px}
 .task-check:disabled{opacity:.4;cursor:default}
+.editable-cell{cursor:pointer;transition:background .15s}
+.editable-cell:hover{background:rgba(99,102,241,.08)}
+.inline-edit-select{background:var(--surface2);color:var(--text);border:1px solid var(--accent);border-radius:4px;padding:2px 4px;font-size:11px;cursor:pointer;outline:none;max-width:110px}
 
 /* badges */
 .vbadge{display:inline-block;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600;white-space:nowrap;border:1px solid;text-transform:uppercase;letter-spacing:.3px}
@@ -573,7 +575,6 @@ td{padding:10px 12px;vertical-align:top}
   <table>
     <thead>
       <tr>
-        <th class="check-col"></th>
         <th onclick="sortBy('venture')">Venture <span class="sort-arrow">↕</span></th>
         <th onclick="sortBy('name')">Task <span class="sort-arrow">↕</span></th>
         <th onclick="sortBy('category')">Category <span class="sort-arrow">↕</span></th>
@@ -1736,6 +1737,15 @@ function buildDashboard(googleItems) {
     }
   }
 
+  // ── [TOP] prefix: strip tag, force Critical priority + Now urgency ──────────
+  for (const t of merged) {
+    if (t.name && /^\[TOP\]\s*/i.test(t.name)) {
+      t.name     = t.name.replace(/^\[TOP\]\s*/i, '').trim();
+      t.priority = 'Critical';
+      t.urgency  = 'Now';
+    }
+  }
+
   tasks = merged;
   buildStats();
   applyFilters();
@@ -1856,6 +1866,7 @@ function pickTopTasks(pool, count, maxPerVenture = 99) {
 
 // Module-level cache so focus panels can re-render without full rebuild
 let _todayTasks = [], _weekTasks = [], _focusPanelOpen = { today: true, week: false };
+let _currentFocusToday = [], _currentFocusWeek = [], _currentFocusVenture = null;
 
 function buildStats() {
   const VENTURES      = ['flowar','homeservices','legal','dental','voice'];
@@ -1961,6 +1972,11 @@ function buildStats() {
 
 // ─── Focus panels ─────────────────────────────────────────────────────────────
 function buildFocusPanels(todayList, weekList, ventureFilter) {
+  // Cache so toggleFocusPanel can re-render with the same (possibly filtered) lists
+  _currentFocusToday   = todayList;
+  _currentFocusWeek    = weekList;
+  _currentFocusVenture = ventureFilter || null;
+
   const panel = document.getElementById('focusPanels');
   if (!panel) return;
 
@@ -2011,8 +2027,8 @@ function buildFocusPanels(todayList, weekList, ventureFilter) {
 
 function toggleFocusPanel(which) {
   _focusPanelOpen[which] = !_focusPanelOpen[which];
-  buildFocusPanels(_todayTasks, _weekTasks,
-    activeVenture !== 'all' ? (document.querySelector('.vtab.active .vtab-label')?.textContent?.replace(/^[^ ]+ /,'')) : null);
+  // Re-render with the same lists that were last passed (respects venture filter)
+  buildFocusPanels(_currentFocusToday, _currentFocusWeek, _currentFocusVenture);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2104,17 +2120,8 @@ function renderTable(filtered) {
   const isDone = t => t.status==='Completed';
   tbody.innerHTML = filtered.map(t => {
     const checked = isDone(t);
-    // Use single-quoted string so the key doesn't break the double-quoted HTML attribute
-    const gKey = t.googleKey ? `'${t.googleKey.replace(/'/g, "\\'")}'` : 'null';
-    const syncTip = t.fromGoogle && isAuthenticated
-      ? ''
-      : t.fromGoogle
-        ? ' title="Connect Google Tasks to sync this status to Google"'
-        : ' title="Local only — not yet in Google Tasks. Status saved here."';
+    const tKey = (t.googleKey || normalizeTitle(t.name)).replace(/'/g, "\\'");
     return `<tr class="${checked?'completed-row':''}">
-      <td class="check-col"><input type="checkbox" class="task-check"
-        ${checked?'checked':''}${syncTip}
-        onchange="onCheckboxChange(${gKey},'${t.status}')" /></td>
       <td><span class="vbadge ${t.venture}">${t.ventureLabel}</span></td>
       <td>
         <div class="task-name">
@@ -2126,11 +2133,11 @@ function renderTable(filtered) {
         </div>
         <div class="task-desc">${t.desc}</div>
       </td>
-      <td><span class="cbadge">${t.category}</span></td>
-      <td><span class="pbadge ${t.priority}">${t.priority}</span></td>
-      <td><span class="ubadge ${t.urgency}">${t.urgency}</span></td>
-      <td>${effortDots(t.effort)}</td>
-      <td><span class="sbadge ${sClass(t.status)}">${t.status}</span></td>
+      <td class="editable-cell" title="Click to edit" onclick="editTaskField('${tKey}','category',this)"><span class="cbadge">${t.category}</span></td>
+      <td class="editable-cell" title="Click to edit" onclick="editTaskField('${tKey}','priority',this)"><span class="pbadge ${t.priority}">${t.priority}</span></td>
+      <td class="editable-cell" title="Click to edit" onclick="editTaskField('${tKey}','urgency',this)"><span class="ubadge ${t.urgency}">${t.urgency}</span></td>
+      <td class="editable-cell" title="Click to edit" onclick="editTaskField('${tKey}','effort',this)">${effortDots(t.effort)}</td>
+      <td class="editable-cell" title="Click to edit" onclick="editTaskField('${tKey}','status',this)"><span class="sbadge ${sClass(t.status)}">${t.status}</span></td>
     </tr>`;
   }).join('');
 }
@@ -2138,6 +2145,78 @@ function renderTable(filtered) {
 function onCheckboxChange(googleKey, currentStatus) {
   if (!googleKey) return;
   toggleTaskComplete(googleKey, currentStatus);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// INLINE TASK FIELD EDITING
+// ═══════════════════════════════════════════════════════════════════
+const FIELD_OPTIONS = {
+  category: ['Strategy','Product','Engineering','Operations','GTM/Sales','Research','Finance'],
+  priority:  ['Critical','High','Medium','Low'],
+  urgency:   ['Now','Soon','Later'],
+  effort:    ['1','2','3','5','8'],
+  status:    ['To Do','In Progress','Blocked',"Won't Do",'Completed','Backlog'],
+};
+
+function editTaskField(taskKey, field, cell) {
+  if (cell.querySelector('select')) return;  // already editing
+  const task = tasks.find(t => (t.googleKey || normalizeTitle(t.name)) === taskKey);
+  if (!task) return;
+
+  const currentVal = field === 'effort' ? String(task.effort ?? 2) : (task[field] ?? '');
+  const opts = FIELD_OPTIONS[field] || [];
+
+  const sel = document.createElement('select');
+  sel.className = 'inline-edit-select';
+  opts.forEach(o => {
+    const opt = document.createElement('option');
+    opt.value = o; opt.textContent = o;
+    if (o === currentVal) opt.selected = true;
+    sel.appendChild(opt);
+  });
+
+  sel.onchange = (e) => { e.stopPropagation(); saveTaskField(taskKey, field, sel.value); };
+  sel.onblur   = ()  => applyFilters();  // close on blur — re-render restores badge
+  sel.onclick  = (e) => e.stopPropagation();
+
+  cell.innerHTML = '';
+  cell.appendChild(sel);
+  sel.focus();
+}
+
+function saveTaskField(taskKey, field, value) {
+  const task = tasks.find(t => (t.googleKey || normalizeTitle(t.name)) === taskKey);
+  if (!task) return;
+
+  if (field === 'status') {
+    if (value === 'Completed') {
+      // Reuse existing complete toggle (handles Google Tasks sync too)
+      setLocalDone(taskKey, true, task.venture);
+      task.status = 'Completed';
+    } else {
+      setLocalDone(taskKey, false, task.venture);
+      task.status = value;
+      updateTaskInDB(taskKey, { default_status: value });
+    }
+  } else if (field === 'effort') {
+    const n = parseInt(value, 10);
+    task.effort = n;
+    updateTaskInDB(taskKey, { effort: n });
+  } else {
+    task[field] = value;
+    updateTaskInDB(taskKey, { [field]: value });
+  }
+
+  buildStats();
+  applyFilters();
+}
+
+function updateTaskInDB(taskKey, updates) {
+  if (!_dbClient) return;
+  _dbClient.from('tasks')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('task_key', taskKey)
+    .then(({ error }) => { if (error) console.error('[DB] field update failed:', error); });
 }
 
 // ═══════════════════════════════════════════════════════════════════
