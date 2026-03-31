@@ -75,6 +75,7 @@ interface DashboardStore {
 
   // task done toggle — persists to Supabase
   toggleDone: (taskKey: string, done: boolean, venture?: string) => void;
+  setTaskField: (taskKey: string, field: string, value: unknown) => void;
 
   // playbook artifact update — persists to Supabase
   setPlaybookStatus: (venture: string, artifact: string, status: string) => void;
@@ -189,6 +190,40 @@ export const useDashboard = create<DashboardStore>()(
         // Persist to Supabase (fire-and-forget)
         if (get().db.ready) {
           upsertTaskState(taskKey, venture, done).catch(console.error);
+        }
+        get().recomputeFocus();
+      },
+
+      // ── task field edit ───────────────────────────────────────────────────────
+
+      setTaskField: (taskKey, field, value) => {
+        set((s) => {
+          const tasks = (s.db.tasks ?? []).map((t) => {
+            const key = t.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+            if (key !== taskKey) return t;
+            if (field === 'status') {
+              // status is virtual — map to defaultStatus (done handled separately)
+              return { ...t, defaultStatus: value as string };
+            }
+            return { ...t, [field]: value };
+          });
+          return { db: { ...s.db, tasks } };
+        });
+        // Persist to Supabase
+        if (get().db.ready) {
+          const dbField = field === 'status' ? 'default_status' : field;
+          import('@/lib/supabase').then(({ updateTaskField }) =>
+            updateTaskField(taskKey, dbField, value).catch(console.error)
+          );
+          // If marking complete via status field
+          if (field === 'status' && value === 'Completed') {
+            const task = (get().db.tasks ?? []).find(
+              (t) => t.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') === taskKey
+            );
+            upsertTaskState(taskKey, task?.venture ?? '', true).catch(console.error);
+          } else if (field === 'status') {
+            upsertTaskState(taskKey, '', false).catch(console.error);
+          }
         }
         get().recomputeFocus();
       },

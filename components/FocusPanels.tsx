@@ -48,18 +48,24 @@ function FocusTask({ task, done, onToggle }: {
 }
 
 export default function FocusPanels() {
-  const { todayTasks, weekTasks, todayOpen, weekOpen, togglePanel, db, toggleDone } =
+  const { todayTasks, weekTasks, todayOpen, weekOpen, togglePanel, db, toggleDone, activeVenture } =
     useDashboard(
       useShallow((s) => ({
-        todayTasks:  s.todayTasks,
-        weekTasks:   s.weekTasks,
-        todayOpen:   s.todayOpen,
-        weekOpen:    s.weekOpen,
-        togglePanel: s.togglePanel,
-        db:          s.db,
-        toggleDone:  s.toggleDone,
+        todayTasks:    s.todayTasks,
+        weekTasks:     s.weekTasks,
+        todayOpen:     s.todayOpen,
+        weekOpen:      s.weekOpen,
+        togglePanel:   s.togglePanel,
+        db:            s.db,
+        toggleDone:    s.toggleDone,
+        activeVenture: s.activeVenture,
       }))
     );
+
+  // Venture label for panel titles when filtered
+  const ventureLabel = activeVenture
+    ? (db.tasks ?? []).find((t) => t.venture === activeVenture)?.ventureLabel ?? activeVenture
+    : null;
 
   if (todayTasks.length === 0 && weekTasks.length === 0) return null;
 
@@ -83,7 +89,9 @@ export default function FocusPanels() {
         <div className="focus-panel">
           <div className="focus-panel-hdr" onClick={() => togglePanel('today')}>
             <span className="focus-panel-icon">🎯</span>
-            <span className="focus-panel-title">Today&apos;s Focus</span>
+            <span className="focus-panel-title">
+              {ventureLabel ? `Top ${todayTasks.length} for ${ventureLabel}` : "Today's Focus"}
+            </span>
             <span className="focus-panel-meta">
               {todayTasks.length} tasks · ~{todayHours.toFixed(1)}h
             </span>
@@ -109,7 +117,9 @@ export default function FocusPanels() {
         <div className="focus-panel">
           <div className="focus-panel-hdr" onClick={() => togglePanel('week')}>
             <span className="focus-panel-icon">📅</span>
-            <span className="focus-panel-title">This Week (top 20)</span>
+            <span className="focus-panel-title">
+              {ventureLabel ? `This Week · ${ventureLabel}` : 'This Week (top 20)'}
+            </span>
             <span className="focus-panel-meta">
               {weekTasks.length} tasks · ~{weekHours.toFixed(1)}h
             </span>

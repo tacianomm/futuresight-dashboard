@@ -16,14 +16,24 @@ export function getSupabaseClient(): SupabaseClient {
 // ─── Row → domain type conversion ────────────────────────────────────────────
 
 export function rowToTask(row: TaskRow): Task {
+  // Strip [TOP] prefix → force Critical priority / Now urgency
+  let name     = row.name ?? '';
+  let priority = row.priority;
+  let urgency  = row.urgency;
+  if (/^\[TOP\]\s*/i.test(name)) {
+    name     = name.replace(/^\[TOP\]\s*/i, '').trim();
+    priority = 'Critical';
+    urgency  = 'Now';
+  }
+
   return {
     venture:      row.venture,
     ventureLabel: row.venture_label,
-    name:         row.name,
+    name,
     desc:         row.description,
     category:     row.category,
-    priority:     row.priority,
-    urgency:      row.urgency,
+    priority,
+    urgency,
     effort:       row.effort,
     source:       row.source,
     assignee:     row.assignee,
@@ -135,4 +145,18 @@ export async function upsertVentureStatus(venture: string, status: string): Prom
 
 export async function upsertVentureNote(venture: string, note: string): Promise<void> {
   return upsertPlaybookState(venture, '_venture_note', note);
+}
+
+// ─── Update a single field on a task row ─────────────────────────────────────
+
+export async function updateTaskField(
+  taskKey: string,
+  field: string,
+  value: unknown
+): Promise<void> {
+  const db = getSupabaseClient();
+  const { error } = await db.from('tasks')
+    .update({ [field]: value, updated_at: new Date().toISOString() })
+    .eq('task_key', taskKey);
+  if (error) console.error('[DB] updateTaskField:', error.message);
 }
